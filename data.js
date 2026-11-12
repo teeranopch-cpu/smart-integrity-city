@@ -15,6 +15,9 @@ const TRAITS = [
   { id: 'public', name: 'จิตสาธารณะ' },
 ];
 
+// รหัสครู (เก็บเป็นค่าแฮช SHA-256 ไม่เก็บรหัสจริง) ค่าเริ่มต้นคือ TEACHER2026 — ควรเปลี่ยนก่อนใช้งานจริง (ดู README)
+const TEACHER_CODE_HASHES = ['f9d9335d70b421c989cdd6aaae450adcefd67e73d336c2fc4547ad54a71911e8'];
+
 // ตารางแต้มกลาง: [ดัชนีชีวิต, แต้มความร่วมมือ, ดัชนีเมือง]
 const DEFAULT_POINTS = {
   ownPass: [15, 0, 5],

@@ -38,10 +38,10 @@ async function evaluate(text, lesson, kind) {
   return evalText(text, lesson);
 }
 
-function newPlayer(name, roleId, cardId) {
+function newPlayer(name, roleId) {
   return {
     id: 'p' + Math.random().toString(36).slice(2, 8),
-    name, role: roleId, cardId: (cardId || '').trim(),
+    name, role: roleId,
     life: 0, coop: 0, step: 0, // step = จำนวนขั้นภารกิจที่สำเร็จ (0-3)
     pre: null, traitGame: {}, evidence: {}, post: null,
   };

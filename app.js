@@ -1,8 +1,14 @@
 'use strict';
 // ===== ที่เก็บข้อมูล (localStorage ในเบราว์เซอร์ — ดูข้อจำกัดใน README) =====
 const KEY = 'sic_v1';
-const initDB = () => ({ users: [], session: null, lessons: [JSON.parse(JSON.stringify(DEFAULT_LESSON))], rooms: {} });
-const loadDB = () => { try { return JSON.parse(localStorage.getItem(KEY)) || initDB(); } catch { return initDB(); } };
+const initDB = () => ({ session: null, lessons: [JSON.parse(JSON.stringify(DEFAULT_LESSON))], rooms: {} });
+const loadDB = () => {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY)) || initDB();
+    if (!d.session || typeof d.session !== 'object') d.session = null; // ข้อมูลเวอร์ชันเก่า
+    return d;
+  } catch { return initDB(); }
+};
 let DB = loadDB();
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { toast('พื้นที่จัดเก็บเต็ม (รูปหลักฐานอาจใหญ่เกินไป)'); } };
 
@@ -17,7 +23,8 @@ const roleIcon = (id) => (ROLES.find((r) => r.id === id) || {}).icon || '';
 const traitName = (id) => (TRAITS.find((t) => t.id === id) || {}).name || id;
 const room = () => DB.rooms[ui.code];
 const lessonOf = (r) => DB.lessons.find((l) => l.id === r.lessonId) || DB.lessons[0];
-const me = () => DB.users.find((u) => u.email === DB.session);
+const me = () => DB.session; // {role:'teacher'|'player', name, roomCode?}
+const isTeacher = () => !!DB.session && DB.session.role === 'teacher';
 const fmtT = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
 const sgn = (n) => (n > 0 ? '+' + n : String(n));
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2600); }
@@ -57,61 +64,56 @@ function radar(series) {
 function nav() {
   const u = me();
   $('#nav').innerHTML = u
-    ? `<span>👤 ${esc(u.name)}</span><button data-act="teacher">หลังบ้านครู</button><button data-act="logout">ออกจากระบบ</button>`
-    : `<button data-act="auth">เข้าสู่ระบบ / สมัครสมาชิก</button>`;
+    ? `<span>${u.role === 'teacher' ? '🧑‍🏫 ครู' : '👤'} ${esc(u.name)}</span>${isTeacher() ? '<button data-act="teacher">หลังบ้านครู</button>' : ''}<button data-act="logout">ออกจากระบบ</button>`
+    : '';
+}
+
+function vLogin() {
+  return `<div class="card" style="max-width:420px;margin:24px auto"><h1>🏙️ Smart Integrity City</h1><h2>เข้าสู่ระบบ</h2>
+    <label>ชื่อ</label><input id="lName" autocomplete="name" placeholder="ชื่อของคุณ">
+    <label>รหัส</label><input id="lCode" type="password" autocomplete="off" placeholder="รหัสครู หรือรหัสผู้เล่น">
+    <p><button data-act="doLogin">เข้าสู่ระบบ</button></p>
+    <p class="muted">ถ้าใส่รหัสครูจะเข้าสู่ระบบครู นอกเหนือจากนั้นเข้าสู่ระบบผู้เล่นปกติ</p></div>`;
 }
 
 function vHome() {
+  const cur = me().roomCode && DB.rooms[me().roomCode];
   return `
   <div class="card"><h1>Smart Integrity City</h1>
-    <p class="muted">เว็บแอปประกอบเกมกระดานเพื่อเสริมสร้างคุณลักษณะ 5 ประการ: คิด วินัย ซื่อสัตย์ พอเพียง จิตสาธารณะ</p></div>
-  <div class="grid g3">
-    <div class="card"><h3>1) สร้างห้องใหม่</h3><p class="muted">ต้องเข้าสู่ระบบ เลือกสื่อการสอนและรับรหัสห้อง</p><button data-act="create">สร้างห้อง</button></div>
-    <div class="card"><h3>2) เปิดห้องที่มีอยู่</h3><label>รหัสห้อง</label><input id="openCode" maxlength="6" placeholder="เช่น AB12"><p></p>
-      <div class="row"><button data-act="openRoom">เข้าห้อง (เล่นเกม)</button><button class="alt" data-act="joinPost">หลังเกม (ภารกิจ/สอบ/เกียรติบัตร)</button></div></div>
-    <div class="card"><h3>3) หลังบ้านครู</h3><p class="muted">จัดการสื่อการสอน ตารางแต้ม ตรวจภาพภารกิจ และส่งออก Excel</p><button data-act="teacher">เข้าหลังบ้าน</button></div>
+    <p class="muted">สวัสดี ${esc(me().name)} — เลือกสิ่งที่ต้องการทำ</p></div>
+  <div class="grid g2">
+    <div class="card"><h3>สร้างห้อง</h3><p class="muted">เลือกสื่อการสอน แล้วลงทะเบียนผู้เล่น 6 คน</p><button data-act="create">สร้างห้อง</button></div>
+    <div class="card"><h3>ค้นหาห้องเรียน</h3><p class="muted">ใช้รหัสห้องเพื่อทำภารกิจหน้าห้องเรียน สอบหลังเรียน และรับเกียรติบัตร</p>
+      <label>รหัสห้อง</label><input id="findCode" maxlength="6" placeholder="เช่น AB12" style="text-transform:uppercase"><p><button data-act="findRoom">ค้นหาห้อง</button></p></div>
   </div>
-  <div class="card"><h3>ห้องที่มีในเครื่องนี้</h3>${Object.values(DB.rooms).length ? `<table><tr><th>รหัส</th><th>สถานะ</th><th>ผู้เล่น</th><th></th></tr>${Object.values(DB.rooms).map((r) => `<tr><td><b>${r.code}</b></td><td>${statusLabel(r.status)}</td><td>${r.players.length}</td><td><button class="alt" data-act="enter" data-code="${r.code}">เปิด</button></td></tr>`).join('')}</table>` : '<p class="muted">ยังไม่มีห้อง</p>'}</div>`;
+  ${cur ? `<div class="card"><b>ห้องล่าสุดของคุณ: ${cur.code}</b> (${statusLabel(cur.status)}) <button class="alt" data-act="enter" data-code="${cur.code}">กลับเข้าห้อง</button></div>` : ''}`;
 }
 const statusLabel = (s) => ({ lobby: 'เตรียมเกม', playing: 'กำลังเล่น', ended: 'จบเกมแล้ว' }[s] || s);
 
-function vAuth() {
-  const reg = ui.authMode === 'register';
-  return `<div class="card" style="max-width:420px;margin:auto"><h2>${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</h2>
-    ${reg ? '<label>ชื่อ</label><input id="aName">' : ''}
-    <label>อีเมล</label><input id="aEmail" type="email"><label>รหัสผ่าน (อย่างน้อย 6 ตัว)</label><input id="aPw" type="password">
-    <p class="row"><button data-act="${reg ? 'doRegister' : 'doLogin'}">${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</button>
-    <button class="alt" data-act="authMode" data-m="${reg ? 'login' : 'register'}">${reg ? 'มีบัญชีแล้ว' : 'สมัครสมาชิกใหม่'}</button></p>
-    <p class="muted">บัญชีเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น (เดโม)</p></div>`;
-}
-
 function vCreate() {
-  if (!me()) return vAuth();
   return `<div class="card"><h2>สร้างห้อง</h2><label>เลือกสื่อการสอน</label>
     <select id="cLesson">${options(DB.lessons.map((l) => [l.id, l.name]))}</select>
     <p><button data-act="doCreate">สร้างห้องและรับรหัส</button></p></div>`;
 }
 
 function vLobby() {
-  const r = room(), L = lessonOf(r); const url = location.href.split('#')[0];
-  const ready = r.players.length > 0 && r.players.every((p) => p.pre);
+  const r = room(), L = lessonOf(r);
+  const byRole = (id) => r.players.find((p) => p.role === id);
+  const filled = r.players.length, ready = filled >= 2 && r.players.every((p) => p.pre);
   return `
-  <div class="card"><div class="row" style="justify-content:space-between"><div><div class="muted">รหัสห้อง</div><div class="code">${r.code}</div><div class="muted">สื่อการสอน: ${esc(L.name)}</div></div>
-    <div><img class="qr" alt="QR" src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(url)}"><div class="muted">สแกนเข้าเว็บ</div></div></div></div>
-  <div class="grid g2">
-  <div class="card"><h3>ลงทะเบียนผู้เล่น</h3>
-    <label>ชื่อ</label><input id="pName"><label>อาชีพ</label><select id="pRole">${roleOpts()}</select>
-    <label>รหัสการ์ดตัวละคร / NFC (ไม่บังคับ)</label><input id="pCard" placeholder="พิมพ์หรือแตะการ์ดเพื่ออ่านรหัส">
-    <p class="row"><button data-act="addPlayer">เพิ่มผู้เล่น</button><button class="alt" data-act="nfcRead" data-fill="pCard">แตะการ์ด NFC</button></p></div>
+  <div class="card"><div class="muted">รหัสห้อง</div><div class="code">${r.code}</div><div class="muted">สื่อการสอน: ${esc(L.name)}</div></div>
+  <div class="card"><h3>ลงทะเบียนผู้เล่น 6 คน</h3><p class="muted">กรอกชื่อผู้เล่นของแต่ละอาชีพ แล้วกด "บันทึกรายชื่อ" จากนั้นให้แต่ละคนทำ Pre-Test</p>
+    <table><tr><th>ผู้เล่น</th><th>อาชีพ</th><th>ชื่อ</th><th>Pre-Test</th></tr>
+    ${ROLES.map((ro, i) => { const p = byRole(ro.id); return `<tr><td>คนที่ ${i + 1}</td><td>${ro.icon} ${ro.name}</td>
+      <td><input data-reg="${ro.id}" value="${esc(p ? p.name : '')}" placeholder="ชื่อผู้เล่น"></td>
+      <td>${p ? (p.pre ? '<span class="good">เสร็จแล้ว</span> ' : '<span class="bad">ยังไม่ทำ</span> ') + `<button class="alt" data-act="startPre" data-pid="${p.id}">${p.pre ? 'ทำใหม่' : 'ทำ Pre-Test'}</button>` : '<span class="muted">บันทึกชื่อก่อน</span>'}</td></tr>`; }).join('')}</table>
+    <p><button data-act="saveRoster">บันทึกรายชื่อ</button></p></div>
   <div class="card"><h3>ตั้งค่าเกม</h3>
-    <label>เวลาเล่น (นาที, ขั้นต่ำ 20)</label><input id="sDur" type="number" min="20" value="${r.durationMin}">
-    <label>ดัชนีเมืองสุจริตเริ่มต้น</label><input id="sCity" type="number" min="1" value="${r.cityStart}">
-    <p><button class="alt" data-act="saveSettings">บันทึกการตั้งค่า</button></p></div></div>
-  <div class="card"><h3>ผู้เล่น (${r.players.length})</h3>
-  ${r.players.length ? `<table><tr><th>ชื่อ</th><th>อาชีพ</th><th>การ์ด</th><th>Pre-Test</th><th></th></tr>${r.players.map((p) => `<tr><td>${esc(p.name)}</td><td>${roleIcon(p.role)} ${roleName(p.role)}</td><td>${esc(p.cardId) || '-'}</td>
-    <td>${p.pre ? '<span class="good">เสร็จแล้ว</span>' : '<span class="bad">ยังไม่ทำ</span>'}</td>
-    <td class="row"><button class="alt" data-act="startPre" data-pid="${p.id}">${p.pre ? 'ทำใหม่' : 'ทำ Pre-Test'}</button><button class="alt" data-act="delPlayer" data-pid="${p.id}">ลบ</button></td></tr>`).join('')}</table>` : '<p class="muted">ยังไม่มีผู้เล่น</p>'}
-  <p><button data-act="startGame" ${ready ? '' : 'disabled'}>เริ่มเกม</button> ${ready ? '' : '<span class="muted">ต้องมีผู้เล่นและทำ Pre-Test ครบทุกคนก่อน</span>'}</p></div>`;
+    <div class="grid g2"><div><label>เวลาเล่น (นาที, ขั้นต่ำ 20)</label><input id="sDur" type="number" min="20" value="${r.durationMin}"></div>
+    <div><label>ดัชนีเมืองสุจริตเริ่มต้น</label><input id="sCity" type="number" min="1" value="${r.cityStart}"></div></div>
+    <p class="row"><button class="alt" data-act="saveSettings">บันทึกการตั้งค่า</button>
+    <button data-act="startGame" ${ready ? '' : 'disabled'}>เริ่มเกม</button></p>
+    ${ready ? '' : '<p class="muted">เริ่มเกมได้เมื่อมีผู้เล่นอย่างน้อย 2 คน และทุกคนที่ลงทะเบียนทำ Pre-Test แล้ว</p>'}</div>`;
 }
 
 function vPretest() {
@@ -134,8 +136,7 @@ function vGame() {
   <div class="card"><table><tr><th>ผู้เล่น</th><th>อาชีพ</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ขั้นภารกิจ</th></tr>
   ${r.players.map((p) => `<tr><td>${esc(p.name)}</td><td>${roleIcon(p.role)} ${roleName(p.role)}</td><td>${p.life}</td><td>${p.coop}</td><td>${'●'.repeat(p.step)}${'○'.repeat(3 - p.step)}</td></tr>`).join('')}</table></div>
   <div class="card"><h3>ทำรายการ</h3>
-    <div class="row"><div style="flex:1;min-width:200px"><label>ผู้เล่นที่แตะการ์ด</label><select data-bind="actor">${options(r.players.map((p) => [p.id, p.name + ' (' + roleName(p.role) + ')']), ui.actor)}</select></div>
-    <button class="alt" data-act="nfcRead" data-fill="actor">แตะการ์ด NFC</button></div>
+    <div class="row"><div style="flex:1;min-width:200px"><label>ผู้เล่นที่ทำรายการ</label><select data-bind="actor">${options(r.players.map((p) => [p.id, p.name + ' (' + roleName(p.role) + ')']), ui.actor)}</select></div></div>
     ${ui.act ? vAct() : vActMenu(r)}</div>
   <div class="card"><h3>บันทึกเหตุการณ์ล่าสุด</h3>${r.log.length ? `<table>${r.log.slice(-8).reverse().map((l) => { const p = r.players.find((x) => x.id === l.pid); return `<tr><td>${p ? esc(p.name) : '-'}</td><td>${esc(l.reason)}</td><td>ชีวิต ${sgn(l.life)} / ร่วมมือ ${sgn(l.coop)} / เมือง ${sgn(l.city)}</td></tr>`; }).join('')}</table>` : '<p class="muted">ยังไม่มี</p>'}</div>`;
 }
@@ -226,10 +227,10 @@ function vPost() {
 
 // ===== หลังบ้านครู =====
 function vTeacher() {
-  if (!me()) return vAuth();
+  if (!isTeacher()) return vHome();
   const tabs = [['lessons', 'สื่อการสอน'], ['points', 'ตารางแต้มกลาง'], ['review', 'ตรวจภารกิจชีวิตจริง'], ['export', 'ส่งออก Excel']];
   if (!ui.lessonId || !DB.lessons.find((l) => l.id === ui.lessonId)) ui.lessonId = DB.lessons[0].id;
-  const L = DB.lessons.find((l) => l.id === ui.lessonId), mine = Object.values(DB.rooms).filter((r) => r.owner === DB.session);
+  const L = DB.lessons.find((l) => l.id === ui.lessonId), mine = Object.values(DB.rooms);
   let body = '';
   if (ui.tTab === 'lessons' || ui.tTab === 'points') body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>`;
   if (ui.tTab === 'lessons') {
@@ -242,16 +243,21 @@ function vTeacher() {
       <label>เกณฑ์ผ่านเกียรติบัตร (เต็ม 10)</label><input type="number" id="passScore" min="1" max="10" value="${L.passScore}"><p><button data-act="savePoints">บันทึกตารางแต้ม</button></p>`;
   }
   if (ui.tTab === 'review') {
-    body += mine.length ? mine.map((r) => `<div class="card"><b>ห้อง ${r.code}</b>${r.players.map((p) => Object.entries(p.evidence).map(([t, e]) => `<div class="row" style="margin-top:8px"><img class="ev" src="${e.img}" alt=""><div><b>${esc(p.name)}</b> · ${traitName(t)}<br>${esc(e.desc)}<br><span class="pill">${e.status}</span> <button data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="approved">ผ่าน</button> <button class="alt" data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="rejected">ไม่ผ่าน</button></div></div>`).join('')).join('') || '<p class="muted">ยังไม่มีหลักฐาน</p>'}</div>`).join('') : '<p class="muted">ยังไม่มีห้องที่คุณสร้าง</p>';
+    body += mine.length ? mine.map((r) => `<div class="card"><b>ห้อง ${r.code}</b>${r.players.map((p) => Object.entries(p.evidence).map(([t, e]) => `<div class="row" style="margin-top:8px"><img class="ev" src="${e.img}" alt=""><div><b>${esc(p.name)}</b> · ${traitName(t)}<br>${esc(e.desc)}<br><span class="pill">${e.status}</span> <button data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="approved">ผ่าน</button> <button class="alt" data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="rejected">ไม่ผ่าน</button></div></div>`).join('')).join('') || '<p class="muted">ยังไม่มีหลักฐาน</p>'}</div>`).join('') : '<p class="muted">ยังไม่มีห้อง</p>';
   }
   if (ui.tTab === 'export') {
-    body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้องที่คุณสร้าง</p>';
+    body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้อง</p>';
   }
   return `<div class="card"><h2>หลังบ้านครู</h2><div class="tabs">${tabs.map(([k, l]) => `<button class="${ui.tTab === k ? 'on' : ''}" data-act="tTab" data-t="${k}">${l}</button>`).join('')}</div>${body}</div>`;
 }
 
-const VIEWS = { home: vHome, auth: vAuth, create: vCreate, lobby: vLobby, pretest: vPretest, game: vGame, end: vEnd, joinPost: vJoinPost, post: vPost, teacher: vTeacher };
-function render() { nav(); $('#app').innerHTML = VIEWS[ui.view](); tick(); }
+const VIEWS = { home: vHome, login: vLogin, create: vCreate, lobby: vLobby, pretest: vPretest, game: vGame, end: vEnd, joinPost: vJoinPost, post: vPost, teacher: vTeacher };
+function render() {
+  if (!me()) ui.view = 'login';
+  else if (ui.view === 'login') ui.view = 'home';
+  if (ui.view === 'teacher' && !isTeacher()) ui.view = 'home';
+  nav(); $('#app').innerHTML = VIEWS[ui.view](); tick();
+}
 
 // ===== นาฬิกา =====
 function tick() {
@@ -271,44 +277,45 @@ setInterval(tick, 1000);
 const newCode = () => { let c; do { c = Array.from({ length: 4 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join(''); } while (DB.rooms[c]); return c; };
 function enterRoom(code) {
   const r = DB.rooms[(code || '').toUpperCase()]; if (!r) return toast('ไม่พบห้อง');
-  ui.code = r.code; go(r.status === 'lobby' ? 'lobby' : r.status === 'playing' ? 'game' : 'end');
+  ui.code = r.code; DB.session.roomCode = r.code; save();
+  go(r.status === 'lobby' ? 'lobby' : r.status === 'playing' ? 'game' : 'end');
 }
 function traitGrade(r, t) { if (r.verdict === 'corrupt') return 'bad'; if (r.verdict === 'pass') return r.good >= 2 ? 'good' : 'ok'; return t.trim().length >= 15 ? 'ok' : 'bad'; }
 
 const H = {
   home: () => go('home'),
-  auth: () => go('auth'),
-  authMode: (b) => go('auth', { authMode: b.dataset.m }),
-  logout: () => { DB.session = null; save(); go('home'); },
+  logout: () => { DB.session = null; save(); ui.code = null; go('login'); },
   create: () => go('create'),
   teacher: () => go('teacher'),
   enter: (b) => enterRoom(b.dataset.code),
-  openRoom: () => enterRoom($('#openCode').value.trim()),
-  joinPost: () => { const c = ($('#openCode') || {}).value; go('joinPost', { code: c ? c.toUpperCase() : null, pid: null }); },
+  findRoom: () => { const c = $('#findCode').value.trim().toUpperCase(); if (!DB.rooms[c]) return toast('ไม่พบห้องนี้'); go('joinPost', { code: c, pid: null }); },
   joinPostNow: () => go('joinPost'),
   joinFind: () => { const c = $('#jCode').value.trim().toUpperCase(); if (!DB.rooms[c]) return toast('ไม่พบห้อง'); go('joinPost', { code: c }); },
   joinGo: () => { if (!ui.pid) return toast('เลือกชื่อก่อน'); go('post', { tab: 'mission' }); },
-  async doRegister() {
-    const name = $('#aName').value.trim(), email = $('#aEmail').value.trim().toLowerCase(), pw = $('#aPw').value;
-    if (!name || !email || pw.length < 6) return toast('กรอกข้อมูลให้ครบ (รหัสผ่านอย่างน้อย 6 ตัว)');
-    if (DB.users.find((u) => u.email === email)) return toast('อีเมลนี้สมัครแล้ว');
-    DB.users.push({ name, email, hash: await sha(pw) }); DB.session = email; save(); go('home');
-  },
   async doLogin() {
-    const email = $('#aEmail').value.trim().toLowerCase(), u = DB.users.find((x) => x.email === email);
-    if (!u || u.hash !== (await sha($('#aPw').value))) return toast('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
-    DB.session = email; save(); go('home');
+    const name = $('#lName').value.trim(), code = $('#lCode').value;
+    if (!name) return toast('กรอกชื่อ');
+    if (!code.trim()) return toast('กรอกรหัส');
+    const teacher = TEACHER_CODE_HASHES.includes(await sha(code.trim()));
+    DB.session = { role: teacher ? 'teacher' : 'player', name }; save();
+    toast(teacher ? 'เข้าสู่ระบบครูแล้ว' : 'เข้าสู่ระบบผู้เล่นแล้ว'); go('home');
   },
   doCreate: () => {
     const code = newCode(), lessonId = $('#cLesson').value;
-    DB.rooms[code] = { code, owner: DB.session, lessonId, status: 'lobby', city: 100, cityStart: 100, durationMin: 20, players: [], log: [], createdAt: Date.now() };
-    save(); ui.code = code; go('lobby');
+    DB.rooms[code] = { code, owner: DB.session.name, lessonId, status: 'lobby', city: 100, cityStart: 100, durationMin: 20, players: [], log: [], createdAt: Date.now() };
+    DB.session.roomCode = code; save(); ui.code = code; go('lobby');
   },
-  addPlayer: () => {
-    const name = $('#pName').value.trim(); if (!name) return toast('กรอกชื่อ');
-    room().players.push(newPlayer(name, $('#pRole').value, $('#pCard').value)); save(); render();
+  saveRoster: () => {
+    const r = room(); let n = 0;
+    document.querySelectorAll('[data-reg]').forEach((i) => {
+      const role = i.dataset.reg, name = i.value.trim(), p = r.players.find((x) => x.role === role);
+      if (name && p) p.name = name;
+      else if (name) r.players.push(newPlayer(name, role));
+      else if (p) r.players = r.players.filter((x) => x !== p);
+      if (name) n++;
+    });
+    save(); toast('บันทึกรายชื่อแล้ว (' + n + ' คน)'); render();
   },
-  delPlayer: (b) => { const r = room(); r.players = r.players.filter((p) => p.id !== b.dataset.pid); save(); render(); },
   saveSettings: () => {
     const r = room(), d = parseInt($('#sDur').value, 10), c = parseInt($('#sCity').value, 10);
     if (!(d >= 20)) return toast('เวลาเล่นต้องไม่น้อยกว่า 20 นาที');
@@ -374,17 +381,6 @@ const H = {
     applyDelta(r, r.players.find((p) => p.id === pid) || null, d, 'การ์ดข่าวสาร: ' + why); save();
     if (r.status === 'ended') go('end'); else { toast('บันทึกแล้ว'); render(); }
   },
-  nfcRead: async (b) => {
-    if (!('NDEFReader' in window)) return toast('เบราว์เซอร์นี้ไม่รองรับ NFC (ใช้ Chrome บน Android)');
-    try {
-      const rd = new NDEFReader(); await rd.scan(); toast('แตะการ์ดที่เครื่องอ่าน...');
-      rd.onreading = (e) => {
-        let id = e.serialNumber || ''; for (const rec of e.message.records) if (rec.recordType === 'text') id = new TextDecoder(rec.encoding || 'utf-8').decode(rec.data);
-        if (b.dataset.fill === 'pCard') { $('#pCard').value = id; return; }
-        const p = room().players.find((x) => x.cardId && x.cardId === id); if (!p) return toast('ไม่พบการ์ดนี้ในห้อง'); ui.actor = p.id; render();
-      };
-    } catch (e) { toast('อ่าน NFC ไม่สำเร็จ'); }
-  },
   tab: (b) => go('post', { tab: b.dataset.t }),
   async sendEv(b) {
     const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pid), t = b.dataset.t;
@@ -414,7 +410,7 @@ const H = {
   },
   rev: (b) => { const p = DB.rooms[b.dataset.code].players.find((x) => x.id === b.dataset.pid); p.evidence[b.dataset.t].status = b.dataset.s; save(); render(); },
   exportCsv: () => {
-    const r = DB.rooms[ui.tRoom || Object.values(DB.rooms).find((x) => x.owner === DB.session).code], L = lessonOf(r);
+    const r = DB.rooms[ui.tRoom || Object.values(DB.rooms)[0].code], L = lessonOf(r);
     const head = ['ชื่อ', 'อาชีพ', 'ขั้นภารกิจ', 'ดัชนีชีวิต', 'แต้มร่วมมือ', 'รวมในเกม', ...TRAITS.map((t) => 'Pre-' + t.name), ...TRAITS.map((t) => 'Game-' + t.name), 'Post-Test', 'ภารกิจชีวิตจริงที่ผ่าน', 'รวม(10)', 'ผ่านเกียรติบัตร'];
     const rows = ranking(r).map((p) => { const s = totalScore(p, L); return [p.name, roleName(p.role), p.step, p.life, p.coop, p.life + p.coop, ...TRAITS.map((t) => (p.pre || {})[t.id] ?? ''), ...TRAITS.map((t) => p.traitGame[t.id] ?? (p.pre || {})[t.id] ?? ''), p.post ? p.post.score : '', s.ev, s.total, s.pass ? 'ผ่าน' : 'ไม่ผ่าน']; });
     const csv = '﻿' + [head, ...rows].map((l) => l.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
