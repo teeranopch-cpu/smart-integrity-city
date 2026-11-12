@@ -1,10 +1,11 @@
 'use strict';
 // ===== ที่เก็บข้อมูล (localStorage ในเบราว์เซอร์ — ดูข้อจำกัดใน README) =====
 const KEY = 'sic_v1';
-const initDB = () => ({ session: null, lessons: [JSON.parse(JSON.stringify(DEFAULT_LESSON))], rooms: {} });
+const initDB = () => ({ users: [], session: null, lessons: [JSON.parse(JSON.stringify(DEFAULT_LESSON))], rooms: {} });
 const loadDB = () => {
   try {
     const d = JSON.parse(localStorage.getItem(KEY)) || initDB();
+    if (!Array.isArray(d.users)) d.users = [];
     if (!d.session || typeof d.session !== 'object') d.session = null; // ข้อมูลเวอร์ชันเก่า
     return d;
   } catch { return initDB(); }
@@ -69,11 +70,16 @@ function nav() {
 }
 
 function vLogin() {
-  return `<div class="card" style="max-width:420px;margin:24px auto"><h1>🏙️ Smart Integrity City</h1><h2>เข้าสู่ระบบ</h2>
-    <label>ชื่อ</label><input id="lName" autocomplete="name" placeholder="ชื่อของคุณ">
-    <label>รหัส</label><input id="lCode" type="password" autocomplete="off" placeholder="รหัสครู หรือรหัสผู้เล่น">
-    <p><button data-act="doLogin">เข้าสู่ระบบ</button></p>
-    <p class="muted">ถ้าใส่รหัสครูจะเข้าสู่ระบบครู นอกเหนือจากนั้นเข้าสู่ระบบผู้เล่นปกติ</p></div>`;
+  const reg = ui.authMode === 'register';
+  return `<div class="card" style="max-width:420px;margin:24px auto"><h1>🏙️ Smart Integrity City</h1><h2>${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</h2>
+    ${reg ? '<label>ชื่อ</label><input id="rName" autocomplete="name" placeholder="ชื่อของคุณ">' : ''}
+    <label>อีเมล</label><input id="lEmail" type="email" autocomplete="email" placeholder="you@example.com">
+    <label>${reg ? 'รหัสผ่าน (อย่างน้อย 6 ตัว)' : 'รหัสผ่าน / รหัสครู'}</label><input id="lCode" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}">
+    ${reg ? '<label>ยืนยันรหัสผ่าน</label><input id="rPw2" type="password" autocomplete="new-password">' : ''}
+    <p class="row"><button data-act="${reg ? 'doRegister' : 'doLogin'}">${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</button>
+    <button class="alt" data-act="authMode" data-m="${reg ? 'login' : 'register'}">${reg ? 'มีบัญชีแล้ว' : 'สมัครสมาชิกใหม่'}</button></p>
+    ${reg ? '' : '<p class="muted">ถ้าใส่รหัสครูในช่องรหัสผ่านจะเข้าสู่ระบบครู นอกเหนือจากนั้นเข้าสู่ระบบผู้เล่นปกติด้วยบัญชีที่สมัครไว้</p>'}
+    <p class="muted">บัญชีเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น</p></div>`;
 }
 
 function vHome() {
@@ -292,13 +298,28 @@ const H = {
   joinPostNow: () => go('joinPost'),
   joinFind: () => { const c = $('#jCode').value.trim().toUpperCase(); if (!DB.rooms[c]) return toast('ไม่พบห้อง'); go('joinPost', { code: c }); },
   joinGo: () => { if (!ui.pid) return toast('เลือกชื่อก่อน'); go('post', { tab: 'mission' }); },
+  authMode: (b) => go('login', { authMode: b.dataset.m }),
+  async doRegister() {
+    const name = $('#rName').value.trim(), email = $('#lEmail').value.trim().toLowerCase(), pw = $('#lCode').value;
+    if (!name || !/^\S+@\S+\.\S+$/.test(email)) return toast('กรอกชื่อและอีเมลให้ถูกต้อง');
+    if (pw.length < 6) return toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัว');
+    if (pw !== $('#rPw2').value) return toast('ยืนยันรหัสผ่านไม่ตรงกัน');
+    if (TEACHER_CODE_HASHES.includes(await sha(pw))) return toast('รหัสผ่านนี้ใช้ไม่ได้ กรุณาตั้งรหัสอื่น');
+    if (DB.users.find((u) => u.email === email)) return toast('อีเมลนี้สมัครสมาชิกแล้ว');
+    DB.users.push({ name, email, hash: await sha(pw) });
+    DB.session = { role: 'player', name, email }; save(); toast('สมัครสมาชิกสำเร็จ'); go('home', { authMode: 'login' });
+  },
   async doLogin() {
-    const name = $('#lName').value.trim(), code = $('#lCode').value;
-    if (!name) return toast('กรอกชื่อ');
-    if (!code.trim()) return toast('กรอกรหัส');
-    const teacher = TEACHER_CODE_HASHES.includes(await sha(code.trim()));
-    DB.session = { role: teacher ? 'teacher' : 'player', name }; save();
-    toast(teacher ? 'เข้าสู่ระบบครูแล้ว' : 'เข้าสู่ระบบผู้เล่นแล้ว'); go('home');
+    const email = $('#lEmail').value.trim().toLowerCase(), pw = $('#lCode').value;
+    if (!email || !pw) return toast('กรอกอีเมลและรหัสผ่าน');
+    const h = await sha(pw);
+    if (TEACHER_CODE_HASHES.includes(h)) { // รหัสครู → เข้าสู่ระบบครู
+      const u = DB.users.find((x) => x.email === email);
+      DB.session = { role: 'teacher', name: u ? u.name : email, email }; save(); toast('เข้าสู่ระบบครูแล้ว'); return go('home');
+    }
+    const u = DB.users.find((x) => x.email === email);
+    if (!u || u.hash !== h) return toast('อีเมลหรือรหัสผ่านไม่ถูกต้อง (ถ้ายังไม่มีบัญชี กด "สมัครสมาชิกใหม่")');
+    DB.session = { role: 'player', name: u.name, email }; save(); toast('เข้าสู่ระบบผู้เล่นแล้ว'); go('home');
   },
   doCreate: () => {
     const code = newCode(), lessonId = $('#cLesson').value;
