@@ -123,10 +123,18 @@ function vLobby() {
 }
 
 function vPretest() {
-  const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pre.pid);
-  return `<div class="card"><h2>Pre-Test: ${esc(p.name)}</h2><p class="muted">สถานการณ์จำลอง 5 ข้อ วัดคุณลักษณะ 5 ประการ ตอบด้วยการพิมพ์</p>
-  ${L.pretest.map((q, i) => `<div class="q"><b>ข้อ ${i + 1} (${traitName(q.trait)})</b><br>${esc(q.q)}</div><textarea data-bind="preAns" data-i="${i}">${esc(ui.pre.ans[i] || '')}</textarea>`).join('')}
-  <p class="row"><button data-act="submitPre">ส่งคำตอบ</button><button class="alt" data-act="enter" data-code="${r.code}">ยกเลิก</button></p></div>`;
+  const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pre.pid), P = ui.pre, n = L.pretest.length, q = L.pretest[P.i];
+  const head = `<div class="card"><h2>Pre-Test: ${esc(p.name)}</h2><div class="muted">ข้อ ${P.i + 1} จาก ${n}</div><div class="prog"><i style="width:${(P.i / n) * 100}%"></i></div></div>`;
+  if (P.phase === 'read') {
+    return head + `<div class="card"><div class="q"><b>ข้อ ${P.i + 1} (${traitName(q.trait)})</b><br>${esc(q.q)}</div>
+      <p class="muted">ให้อ่านโจทย์ให้เข้าใจก่อน เมื่อพร้อมแล้วกด "เริ่มทำ" ระบบจะเริ่มนับเวลา 30 วินาที</p>
+      <p class="row"><button data-act="beginQ">เริ่มทำ</button><button class="alt" data-act="enter" data-code="${r.code}">ยกเลิก</button></p></div>`;
+  }
+  return head + `<div class="card"><div class="q"><b>ข้อ ${P.i + 1} (${traitName(q.trait)})</b><br>${esc(q.q)}</div>
+    <div class="row"><span class="muted">เหลือเวลา</span><span class="big" id="ptimer">00:30</span></div>
+    <textarea id="preText" data-bind="preAns" data-i="${P.i}" placeholder="พิมพ์คำตอบ...">${esc(P.ans[P.i] || '')}</textarea>
+    <p class="row"><button data-act="nextQ">${P.i + 1 < n ? 'ส่งคำตอบข้อนี้' : 'ส่งคำตอบและจบ Pre-Test'}</button></p>
+    <p class="muted">หมดเวลาแล้วระบบจะส่งคำตอบที่พิมพ์ไว้และไปข้อถัดไปอัตโนมัติ</p></div>`;
 }
 
 function barCity(r) { const pct = Math.min(100, (r.city / r.cityStart) * 100); return `<div class="bar"><i style="width:${pct}%"></i></div>`; }
@@ -196,7 +204,7 @@ function vEnd() {
   <div class="card"><h3>สรุปภารกิจและคะแนนรวม</h3><table><tr><th>#</th><th>ผู้เล่น</th><th>อาชีพ</th><th>ขั้นภารกิจ</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>รวม</th></tr>
   ${rank.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td>${roleName(p.role)}</td><td>${p.step}/3</td><td>${p.life}</td><td>${p.coop}</td><td><b>${p.life + p.coop}</b></td></tr>`).join('')}</table></div>
   <div class="card"><h3>กราฟเรดาร์: ก่อนเล่น vs ผลในเกม</h3><label>เลือกผู้เล่น</label><select data-bind="radarPid">${options(r.players.map((p) => [p.id, p.name]), ui.radarPid)}</select>
-   ${rp ? radar([{ label: 'ก่อนเล่น (Pre-Test)', vals: preV, color: '#6366f1' }, { label: 'หลังตัดสินใจในเกม', vals: gameV, color: '#14b8a6' }]) + `<p>โดดเด่นด้าน <b>${best}</b> · ควรพัฒนาด้าน <b>${low}</b></p>` : ''}</div>
+   ${rp ? radar([{ label: 'ก่อนเล่น (Pre-Test)', vals: preV, color: '#8ab4f8' }, { label: 'หลังตัดสินใจในเกม', vals: gameV, color: '#f0c987' }]) + `<p>โดดเด่นด้าน <b>${best}</b> · ควรพัฒนาด้าน <b>${low}</b></p>` : ''}</div>
   <div class="card"><b>ขั้นต่อไป:</b> ให้ผู้เล่นใช้รหัสห้อง <span class="code" style="font-size:1.4rem">${r.code}</span> ไปทำภารกิจชีวิตจริงภายใน 3 วัน (ภายใน ${new Date(r.endedAt + 3 * 864e5).toLocaleString('th-TH')})
    <p><button data-act="joinPostNow">ไปหน้าหลังเกม</button></p></div>`;
 }
@@ -274,10 +282,15 @@ function tick() {
     if (left <= 0) { endGame(r, 'time'); save(); go('end'); return; }
     if (g) g.textContent = fmtT(left);
   }
+  if (ui.view === 'pretest' && ui.pre && ui.pre.phase === 'answer' && !ui.pre.busy) {
+    const left = PRE_MS - (Date.now() - ui.pre.startedAt), pt = $('#ptimer');
+    if (pt) { pt.textContent = fmtT(Math.max(0, left) + 999); pt.className = left <= 10000 ? 'big bad' : 'big'; }
+    if (left <= 0) { H.nextQ(); return; }
+  }
   const m = $('#mtimer');
   if (m && ui.act && ui.act.timed && !ui.act.ev) { const left = MISSION_MS - (Date.now() - ui.act.startedAt); m.textContent = fmtT(left); m.className = left <= 0 ? 'bad' : ''; }
 }
-setInterval(tick, 1000);
+setInterval(tick, 250);
 
 // ===== เหตุการณ์ =====
 const newCode = () => { let c; do { c = Array.from({ length: 4 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join(''); } while (DB.rooms[c]); return c; };
@@ -343,15 +356,22 @@ const H = {
     if (!(c >= 1)) return toast('ดัชนีเมืองเริ่มต้นไม่ถูกต้อง');
     r.durationMin = d; r.cityStart = c; r.city = c; save(); toast('บันทึกแล้ว'); render();
   },
-  startPre: (b) => go('pretest', { pre: { pid: b.dataset.pid, ans: [] } }),
-  async submitPre() {
+  startPre: (b) => go('pretest', { pre: { pid: b.dataset.pid, ans: [], i: 0, phase: 'read', busy: false } }),
+  beginQ: () => { ui.pre.phase = 'answer'; ui.pre.startedAt = Date.now(); render(); const t = $('#preText'); if (t && t.focus) t.focus(); },
+  async nextQ() {
+    const P = ui.pre; if (!P || P.busy || P.phase !== 'answer') return; P.busy = true;
+    const t = $('#preText'); if (t && typeof t.value === 'string' && t.value) P.ans[P.i] = t.value;
+    if (P.i + 1 < lessonOf(room()).pretest.length) { P.i += 1; P.phase = 'read'; P.busy = false; return render(); }
+    await H.finishPre();
+  },
+  async finishPre() {
     const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pre.pid), sum = {}, cnt = {};
     for (let i = 0; i < L.pretest.length; i++) {
       const t = L.pretest[i], res = await evaluate(ui.pre.ans[i] || '', L, 'pretest'), s = preScoreFromVerdict(res);
       sum[t.trait] = (sum[t.trait] || 0) + s; cnt[t.trait] = (cnt[t.trait] || 0) + 1;
     }
     p.pre = {}; TRAITS.forEach((t) => { p.pre[t.id] = cnt[t.id] ? Math.round(sum[t.id] / cnt[t.id]) : 5; });
-    p.traitGame = {}; save(); toast('บันทึกผล Pre-Test แล้ว'); go('lobby');
+    p.traitGame = {}; save(); ui.pre = null; toast('บันทึกผล Pre-Test แล้ว'); go('lobby');
   },
   startGame: () => {
     const r = room(); r.status = 'playing'; r.startedAt = Date.now(); r.endsAt = r.startedAt + r.durationMin * 60000; r.city = r.cityStart;
