@@ -151,16 +151,16 @@ function barCity(r) { const pct = Math.min(100, (r.city / r.cityStart) * 100); r
 function vGame() {
   const r = room(), L = lessonOf(r);
   if (r.status === 'ended') return vEnd();
-  if (ui.act && (ui.act.stage === 'answer' || ui.act.stage === 'review')) return `<div class="card">${vAct()}</div>`;
+  if (ui.act) return vActPage(r);
   if (!ui.actor || !r.players.find((p) => p.id === ui.actor)) ui.actor = r.players[0].id;
   return `
-  <div class="card"><div class="row" style="justify-content:space-between"><div><div class="muted">ดัชนีเมืองสุจริต</div><div class="big">${r.city}</div></div>
+  ${vNotice()}<div class="card"><div class="row" style="justify-content:space-between"><div><div class="muted">ดัชนีเมืองสุจริต</div><div class="big">${r.city}</div></div>
     <div><div class="muted">เวลาที่เหลือ</div><div class="big" id="gtimer">--:--</div></div>
     <button class="danger" data-act="forceEnd">จบเกมทันที</button></div>${barCity(r)}</div>
   <div class="card"><table><tr><th>ผู้เล่น</th><th>อาชีพ</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ขั้นภารกิจ</th></tr>
   ${r.players.map((p) => `<tr><td>${esc(p.name)}</td><td>${roleIcon(p.role)} ${roleName(p.role)}</td><td>${p.life}</td><td>${p.coop}</td><td>${'●'.repeat(p.step)}${'○'.repeat(3 - p.step)}</td></tr>`).join('')}</table></div>
   <div class="card"><h3>ทำรายการ</h3>
-    ${ui.act ? vAct() : vActMenu(r)}</div>
+    ${vActMenu(r)}</div>
   ${vAdjust(r)}
   <div class="card"><h3>บันทึกเหตุการณ์ล่าสุด</h3>${r.log.length ? `<table>${r.log.slice(-8).reverse().map((l) => { const p = r.players.find((x) => x.id === l.pid); return `<tr><td>${p ? esc(p.name) : '-'}</td><td>${esc(l.reason)}</td><td>ชีวิต ${sgn(l.life)} / ร่วมมือ ${sgn(l.coop)} / เมือง ${sgn(l.city)}</td></tr>`; }).join('')}</table>` : '<p class="muted">ยังไม่มี</p>'}</div>`;
 }
@@ -183,10 +183,31 @@ function vAdjust(r) {
     <tr><td><b>ดัชนีเมือง (ทั้งเมือง)</b></td><td></td><td></td>${cell('', 'city', r.city)}</tr></table></div></div>`;
 }
 
+const KIND_NAMES = { civic: 'ช่องภารกิจพลเมือง', trait: 'ช่องคุณลักษณะ', ethics: 'ช่องท้าทายจริยธรรม', audit: 'ช่องตรวจสอบ' };
+
+function vNotice() {
+  const n = ui.notice;
+  return n ? `<div class="card"><div class="muted">ผลล่าสุด</div><b>${esc(n.who)}</b> · ${esc(n.title)}<br>${esc(n.msg)}</div>` : '';
+}
+
+// หน้าแยกสำหรับทำรายการ: แสดงเฉพาะรายการเดียว ชื่อผู้เล่นและช่องที่ตกตัวใหญ่ ซ่อนข้อมูลอื่นไว้จนทำเสร็จ
+function vActPage(r) {
+  const a = ui.act, p = r.players.find((x) => x.id === a.pid);
+  let banner = `<h1 class="slot">${KIND_NAMES[a.kind]}</h1>`;
+  if (a.stage !== 'setup' && p) {
+    let slot = '';
+    if (a.kind === 'civic') slot = `${roleIcon(a.owner)} ช่องของอาชีพ${roleName(a.owner)}`;
+    if (a.kind === 'trait') slot = `ช่องคุณลักษณะ: ${traitName(a.trait)}`;
+    if (a.kind === 'ethics') slot = 'ช่องท้าทายจริยธรรม';
+    if (a.kind === 'audit') { const ins = r.players.find((x) => x.id === a.inspector); slot = `ช่องตรวจสอบ · ผู้ตรวจสอบ: ${esc(ins ? ins.name : '')}`; }
+    banner = `<div class="who">${esc(p.name)}</div><div class="slot">${slot}</div>`;
+  }
+  return `<div class="card focus">${banner}${vAct()}</div>`;
+}
+
 function vAct() {
   const a = ui.act, r = room(), p = r.players.find((x) => x.id === a.pid);
   const pl = (sel) => options(r.players.map((x) => [x.id, x.name + ' (' + roleName(x.role) + ')']), sel);
-  const kindName = { civic: 'ช่องภารกิจพลเมือง', trait: 'ช่องคุณลักษณะ', ethics: 'ช่องท้าทายจริยธรรม', audit: 'ช่องตรวจสอบ' }[a.kind];
   if (a.stage === 'setup') {
     let body, btn;
     if (a.kind === 'audit') {
@@ -197,9 +218,9 @@ function vAct() {
       if (a.kind === 'trait') { body += `<label>คุณลักษณะ</label><select data-bind="actSet" data-f="trait">${options(TRAITS.map((t) => [t.id, t.name]), a.trait)}</select>`; btn = 'สุ่มโจทย์'; }
       if (a.kind === 'ethics') btn = 'สุ่มโจทย์';
     }
-    return `<b>${kindName}</b>${body}<p class="row"><button data-act="actGo">${btn}</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>`;
+    return `${body}<p class="row"><button data-act="actGo">${btn}</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>`;
   }
-  const head = `<div class="q"><b>${esc(a.title)}</b> — ${esc(p.name)}<br>${esc(a.q)}</div>`;
+  const head = `<div class="q big"><b>${esc(a.title)}</b><br>${esc(a.q)}</div>`;
   if (a.stage === 'read') {
     return head + `<p class="muted">อ่านโจทย์ให้เข้าใจก่อน เมื่อพร้อมกด "เริ่มทำ" ระบบจะเริ่มนับเวลา 30 วินาที</p>
       <p class="row"><button data-act="beginAct">เริ่มทำ</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>`;
@@ -340,6 +361,7 @@ function traitGrade(r, t) { if (r.verdict === 'corrupt') return 'bad'; if (r.ver
 function startSetup(kind) {
   const r = room();
   if (kind === 'audit' && r.players.length < 2) return toast('ต้องมีผู้เล่นอย่างน้อย 2 คน');
+  ui.notice = null;
   ui.act = { kind, stage: 'setup', pid: r.players[kind === 'audit' ? 1 : 0].id, inspector: r.players[0].id, role: ROLES[0].id, trait: TRAITS[0].id, text: '' };
   render();
 }
@@ -466,7 +488,7 @@ const H = {
     if (a.kind === 'trait') msg = resolveTrait(r, L, p, a.trait, v);
     if (a.kind === 'ethics') msg = resolveEthics(r, L, p, a.trait, v === 'right');
     if (a.kind === 'audit') msg = resolveAudit(r, L, p, { score: parseInt(v, 10), lowChoice: $('#lowSel').value });
-    ui.act = null; save(); toast(msg);
+    ui.notice = { who: p.name, title: a.title, msg }; ui.act = null; save(); toast(msg);
     if (r.status === 'ended') go('end'); else go('game');
   },
   adj: (b) => {
