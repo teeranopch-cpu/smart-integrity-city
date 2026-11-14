@@ -13,7 +13,7 @@ const loadDB = () => {
 let DB = loadDB();
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { toast('พื้นที่จัดเก็บเต็ม (รูปหลักฐานอาจใหญ่เกินไป)'); } };
 
-let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', authMode: 'login', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null };
+let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', authMode: 'login', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 5 };
 
 // ===== ตัวช่วย =====
 const $ = (s) => document.querySelector(s);
@@ -150,33 +150,55 @@ function vGame() {
   <div class="card"><table><tr><th>ผู้เล่น</th><th>อาชีพ</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ขั้นภารกิจ</th></tr>
   ${r.players.map((p) => `<tr><td>${esc(p.name)}</td><td>${roleIcon(p.role)} ${roleName(p.role)}</td><td>${p.life}</td><td>${p.coop}</td><td>${'●'.repeat(p.step)}${'○'.repeat(3 - p.step)}</td></tr>`).join('')}</table></div>
   <div class="card"><h3>ทำรายการ</h3>
-    <div class="row"><div style="flex:1;min-width:200px"><label>ผู้เล่นที่ทำรายการ</label><select data-bind="actor">${options(r.players.map((p) => [p.id, p.name + ' (' + roleName(p.role) + ')']), ui.actor)}</select></div></div>
     ${ui.act ? vAct() : vActMenu(r)}</div>
+  ${vAdjust(r)}
   <div class="card"><h3>บันทึกเหตุการณ์ล่าสุด</h3>${r.log.length ? `<table>${r.log.slice(-8).reverse().map((l) => { const p = r.players.find((x) => x.id === l.pid); return `<tr><td>${p ? esc(p.name) : '-'}</td><td>${esc(l.reason)}</td><td>ชีวิต ${sgn(l.life)} / ร่วมมือ ${sgn(l.coop)} / เมือง ${sgn(l.city)}</td></tr>`; }).join('')}</table>` : '<p class="muted">ยังไม่มี</p>'}</div>`;
 }
 
-function vActMenu(r) {
-  return `<div class="grid g2">
-   <div class="card"><b>ช่องภารกิจพลเมือง (12 ช่อง)</b><label>ช่องนี้เป็นของอาชีพ</label><select data-bind="slotRole">${roleOpts(ui.slotRole)}</select><p><button data-act="actCivic">เปิดภารกิจ</button></p></div>
-   <div class="card"><b>ช่องคุณลักษณะ (5 ช่อง)</b><label>คุณลักษณะ</label><select data-bind="slotTrait">${options(TRAITS.map((t) => [t.id, t.name]), ui.slotTrait)}</select><p><button data-act="actTrait">สุ่มสถานการณ์</button></p></div>
-   <div class="card"><b>ช่องท้าทายจริยธรรม (5 ช่อง)</b><p class="muted">ระบบสุ่มคำถามจริยธรรม</p><button data-act="actEthics">สุ่มคำถาม</button></div>
-   <div class="card"><b>ช่องตรวจสอบ (3 ช่อง)</b><label>ผู้ถูกตรวจสอบ</label><select data-bind="auditTarget">${options(r.players.filter((p) => p.id !== ui.actor).map((p) => [p.id, p.name]), ui.auditTarget)}</select>
-     <label><input type="checkbox" id="escape" style="width:auto"> ผู้ถูกตรวจสอบใช้การ์ดหนีการตรวจสอบ</label><p><button data-act="actAudit">เริ่มตรวจสอบ</button></p></div>
-  </div>
-  <div class="card"><b>การ์ดข่าวสาร — ปรับแต้มด้วยตนเอง</b><p class="muted">กรอกผลตามการ์ดข่าวที่เปิดบนโต๊ะ (ลบ = หักแต้ม)</p>
-   <div class="grid g3"><div><label>ผู้เล่น (เว้นว่าง = ผลต่อเมืองอย่างเดียว)</label><select id="mPlayer"><option value="">— ไม่ระบุ —</option>${r.players.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
-   <div><label>ดัชนีเมือง</label><input id="mCity" type="number" value="0"></div><div><label>ดัชนีชีวิต</label><input id="mLife" type="number" value="0"></div>
-   <div><label>แต้มความร่วมมือ</label><input id="mCoop" type="number" value="0"></div><div style="grid-column:span 2"><label>เหตุผล / ชื่อการ์ด</label><input id="mWhy"></div></div>
-   <p><button data-act="manualAdj">บันทึกการปรับแต้ม</button></p></div>`;
+function vActMenu() {
+  return `<p class="muted">เลือกช่องที่ผู้เล่นเดินไปตก แล้วเลือกผู้เล่นก่อนเริ่ม</p><div class="grid g2">
+   <div class="card"><b>ช่องภารกิจพลเมือง (12 ช่อง)</b><p><button data-act="actCivic">เริ่ม</button></p></div>
+   <div class="card"><b>ช่องคุณลักษณะ (5 ช่อง)</b><p><button data-act="actTrait">เริ่ม</button></p></div>
+   <div class="card"><b>ช่องท้าทายจริยธรรม (5 ช่อง)</b><p><button data-act="actEthics">เริ่ม</button></p></div>
+   <div class="card"><b>ช่องตรวจสอบ (3 ช่อง)</b><p><button data-act="actAudit">เริ่ม</button></p></div></div>`;
+}
+
+function vAdjust(r) {
+  const b = (pid, f, d) => `<button class="alt sm" data-act="adj" data-pid="${pid}" data-f="${f}" data-d="${d}" aria-label="${d > 0 ? 'บวก' : 'ลบ'}">${d > 0 ? '+' : '−'}</button>`;
+  const cell = (pid, f, v) => `<td><div class="row" style="flex-wrap:nowrap">${v === null ? '' : `<b style="min-width:2.2em">${v}</b>`}${b(pid, f, -1)}${b(pid, f, 1)}</div></td>`;
+  return `<div class="card"><h3>ปรับคะแนนด้วยตนเอง (บวก/ลบ)</h3>
+    <div class="row"><label style="margin:0">ปรับครั้งละ</label><input type="number" min="1" style="width:90px" data-bind="adjStep" value="${ui.step}"><span class="muted">แต้ม</span></div>
+    <div class="scroll"><table><tr><th>ผู้เล่น</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ดัชนีเมือง</th></tr>
+    ${r.players.map((p) => `<tr><td>${esc(p.name)}</td>${cell(p.id, 'life', p.life)}${cell(p.id, 'coop', p.coop)}${cell(p.id, 'city', null)}</tr>`).join('')}
+    <tr><td><b>ดัชนีเมือง (ทั้งเมือง)</b></td><td></td><td></td>${cell('', 'city', r.city)}</tr></table></div></div>`;
 }
 
 function vAct() {
   const a = ui.act, r = room(), p = r.players.find((x) => x.id === a.pid);
-  let head = `<div class="q"><b>${esc(a.title)}</b> — ${esc(p.name)}<br>${esc(a.q)}</div>`;
-  if (a.timed) head += `<div class="muted">เวลาตอบ: <b id="mtimer">30:00</b></div>`;
+  const pl = (sel) => options(r.players.map((x) => [x.id, x.name + ' (' + roleName(x.role) + ')']), sel);
+  const kindName = { civic: 'ช่องภารกิจพลเมือง', trait: 'ช่องคุณลักษณะ', ethics: 'ช่องท้าทายจริยธรรม', audit: 'ช่องตรวจสอบ' }[a.kind];
+  if (a.stage === 'setup') {
+    let body, btn;
+    if (a.kind === 'audit') {
+      body = `<label>ผู้ตรวจสอบ</label><select data-bind="actSet" data-f="inspector">${pl(a.inspector)}</select><label>ผู้ถูกตรวจสอบ</label><select data-bind="actSet" data-f="pid">${pl(a.pid)}</select>`; btn = 'เริ่มตรวจสอบ';
+    } else {
+      body = `<label>เลือกผู้เล่น</label><select data-bind="actSet" data-f="pid">${pl(a.pid)}</select>`;
+      if (a.kind === 'civic') { body += `<label>ตกช่องของอาชีพ</label><select data-bind="actSet" data-f="role">${roleOpts(a.role)}</select>`; btn = 'แสดงโจทย์'; }
+      if (a.kind === 'trait') { body += `<label>คุณลักษณะ</label><select data-bind="actSet" data-f="trait">${options(TRAITS.map((t) => [t.id, t.name]), a.trait)}</select>`; btn = 'สุ่มโจทย์'; }
+      if (a.kind === 'ethics') btn = 'สุ่มโจทย์';
+    }
+    return `<b>${kindName}</b>${body}<p class="row"><button data-act="actGo">${btn}</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>`;
+  }
+  const head = `<div class="q"><b>${esc(a.title)}</b> — ${esc(p.name)}<br>${esc(a.q)}</div>`;
+  if (a.stage === 'read') {
+    return head + `<p class="muted">อ่านโจทย์ให้เข้าใจก่อน เมื่อพร้อมกด "เริ่มทำ" ระบบจะเริ่มนับเวลา 30 วินาที</p>
+      <p class="row"><button data-act="beginAct">เริ่มทำ</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>`;
+  }
   if (!a.ev) {
-    return head + `<textarea data-bind="actText" placeholder="พิมพ์คำตอบ...">${esc(a.text || '')}</textarea>
-      <p class="row"><button data-act="submitAct">ส่งให้ตรวจ</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>`;
+    return head + (a.timed ? `<div class="row"><span class="muted">เหลือเวลา</span><span class="big" id="mtimer">00:30</span></div>` : '') +
+      `<textarea data-bind="actText" placeholder="พิมพ์คำตอบ...">${esc(a.text || '')}</textarea>
+      <p class="row"><button data-act="submitAct">ส่งให้ตรวจ</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>
+      ${a.timed ? '<p class="muted">หมดเวลาแล้วระบบจะส่งคำตอบที่พิมพ์ไว้ให้ตรวจอัตโนมัติ</p>' : ''}`;
   }
   let sel = '';
   if (a.kind === 'civic') sel = `<select id="vSel">${options([['pass', 'ผ่าน'], ['fail', 'ไม่ผ่าน'], ['corrupt', 'ตอบเชิงทุจริต']], a.suggest)}</select>`;
@@ -184,7 +206,7 @@ function vAct() {
   if (a.kind === 'ethics') sel = `<select id="vSel">${options([['right', 'ถูก'], ['wrong', 'ผิด']], a.suggest)}</select>`;
   if (a.kind === 'audit') sel = `<select id="vSel">${options([0, 1, 2, 3, 4, 5].map((n) => [String(n), n + ' คะแนน']), String(a.suggest))}</select>
      <label>กรณี 1–3 คะแนน</label><select id="lowSel">${options([['penalty', 'หักแต้มตามตาราง'], ['back', 'เดินถอยหลังบนกระดาน']], 'penalty')}</select>`;
-  return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text)}</div><div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
+  return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text) || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div><div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
     <label>ยืนยันผลก่อนบันทึก (ผู้ควบคุมเกมแก้ไขได้)</label>${sel}
     <p class="row"><button data-act="confirmAct">ยืนยันและบันทึกแต้ม</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p></div>`;
 }
@@ -287,8 +309,12 @@ function tick() {
     if (pt) { pt.textContent = fmtT(Math.max(0, left) + 999); pt.className = left <= 10000 ? 'big bad' : 'big'; }
     if (left <= 0) { H.nextQ(); return; }
   }
-  const m = $('#mtimer');
-  if (m && ui.act && ui.act.timed && !ui.act.ev) { const left = MISSION_MS - (Date.now() - ui.act.startedAt); m.textContent = fmtT(left); m.className = left <= 0 ? 'bad' : ''; }
+  const a = ui.act;
+  if (ui.view === 'game' && a && a.timed && a.stage === 'answer' && !a.ev && !a.busy) {
+    const left = MISSION_MS - (Date.now() - a.startedAt), m = $('#mtimer');
+    if (m) { m.textContent = fmtT(Math.max(0, left) + 999); m.className = left <= 10000 ? 'big bad' : 'big'; }
+    if (left <= 0) { submitAnswer(true); return; }
+  }
 }
 setInterval(tick, 250);
 
@@ -300,6 +326,26 @@ function enterRoom(code) {
   go(r.status === 'lobby' ? 'lobby' : r.status === 'playing' ? 'game' : 'end');
 }
 function traitGrade(r, t) { if (r.verdict === 'corrupt') return 'bad'; if (r.verdict === 'pass') return r.good >= 2 ? 'good' : 'ok'; return t.trim().length >= 15 ? 'ok' : 'bad'; }
+
+function startSetup(kind) {
+  const r = room();
+  if (kind === 'audit' && r.players.length < 2) return toast('ต้องมีผู้เล่นอย่างน้อย 2 คน');
+  ui.act = { kind, stage: 'setup', pid: r.players[kind === 'audit' ? 1 : 0].id, inspector: r.players[0].id, role: ROLES[0].id, trait: TRAITS[0].id, text: '' };
+  render();
+}
+async function submitAnswer(auto) {
+  const a = ui.act; if (!a || a.busy || a.ev) return;
+  const t = $('[data-bind=actText]'); if (t && typeof t.value === 'string' && t.value) a.text = t.value;
+  if (!auto && !(a.text || '').trim()) return toast('พิมพ์คำตอบก่อน');
+  a.busy = true;
+  const L = lessonOf(room()), ev = await evaluate(a.text || '', L, a.kind);
+  a.ev = ev;
+  if (a.kind === 'civic') a.suggest = ev.verdict;
+  if (a.kind === 'trait') a.suggest = traitGrade(ev, a.text || '');
+  if (a.kind === 'ethics') a.suggest = ev.verdict === 'pass' ? 'right' : 'wrong';
+  if (a.kind === 'audit') a.suggest = ev.auditScore ?? 0;
+  a.stage = 'review'; a.busy = false; render();
+}
 
 const H = {
   home: () => go('home'),
@@ -378,33 +424,29 @@ const H = {
     r.players.forEach((p) => { p.life = 0; p.coop = 0; p.step = 0; }); r.log = []; save(); ui.act = null; go('game');
   },
   forceEnd: () => { if (confirm('จบเกมตอนนี้และสรุปผลตามคะแนน?')) { endGame(room(), 'time'); save(); go('end'); } },
-  actCivic: () => {
-    const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.actor), own = ui.slotRole === p.role;
-    let m;
-    if (own) { if (p.step >= 3) return toast('ภารกิจส่วนตัวครบ 3 ขั้นแล้ว'); m = L.missions[p.role][p.step]; } else m = L.help[ui.slotRole];
-    ui.act = { kind: 'civic', pid: p.id, owner: ui.slotRole, trait: m.t, title: own ? 'ภารกิจตัวละคร (ขั้น ' + (p.step + 1) + ')' : 'ภารกิจช่วยเหลือ ' + roleName(ui.slotRole), q: m.q, timed: true, startedAt: Date.now(), text: '' }; render();
+  actCivic: () => startSetup('civic'),
+  actTrait: () => startSetup('trait'),
+  actEthics: () => startSetup('ethics'),
+  actAudit: () => startSetup('audit'),
+  actGo: () => {
+    const a = ui.act, r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === a.pid);
+    if (!p) return toast('เลือกผู้เล่นก่อน');
+    if (a.kind === 'audit') {
+      if (a.inspector === a.pid) return toast('ผู้ตรวจสอบและผู้ถูกตรวจสอบต้องเป็นคนละคน');
+      Object.assign(a, { title: 'ภารกิจตรวจสอบ', q: rnd(L.audit), stage: 'answer', timed: false }); return render();
+    }
+    if (a.kind === 'civic') {
+      const own = a.role === p.role; let m;
+      if (own) { if (p.step >= 3) return toast('ภารกิจส่วนตัวของผู้เล่นนี้ครบ 3 ขั้นแล้ว'); m = L.missions[p.role][p.step]; } else m = L.help[a.role];
+      Object.assign(a, { owner: a.role, trait: m.t, title: own ? 'ภารกิจตัวละคร (ขั้น ' + (p.step + 1) + ')' : 'ภารกิจช่วยเหลือ ' + roleName(a.role), q: m.q });
+    }
+    if (a.kind === 'trait') Object.assign(a, { title: 'ช่องคุณลักษณะ: ' + traitName(a.trait), q: rnd(L.traits[a.trait]) });
+    if (a.kind === 'ethics') { const e = rnd(L.ethics); Object.assign(a, { trait: e.t, title: 'ช่องท้าทายจริยธรรม', q: e.q }); }
+    Object.assign(a, { timed: true, stage: 'read' }); render();
   },
-  actTrait: () => { const L = lessonOf(room()); ui.act = { kind: 'trait', pid: ui.actor, trait: ui.slotTrait, title: 'ช่องคุณลักษณะ: ' + traitName(ui.slotTrait), q: rnd(L.traits[ui.slotTrait]), text: '' }; render(); },
-  actEthics: () => { const L = lessonOf(room()), e = rnd(L.ethics); ui.act = { kind: 'ethics', pid: ui.actor, trait: e.t, title: 'ช่องท้าทายจริยธรรม', q: e.q, text: '' }; render(); },
-  actAudit: () => {
-    const r = room(), L = lessonOf(r), tid = ui.auditTarget || (r.players.find((p) => p.id !== ui.actor) || {}).id;
-    if (!tid) return toast('ต้องมีผู้ถูกตรวจสอบอย่างน้อย 1 คน');
-    const target = r.players.find((p) => p.id === tid);
-    if ($('#escape').checked) { const msg = resolveAudit(r, L, target, { escape: true }); save(); toast(msg); return render(); }
-    ui.act = { kind: 'audit', pid: tid, title: 'ภารกิจตรวจสอบ', q: rnd(L.audit), text: '' }; render();
-  },
+  beginAct: () => { ui.act.stage = 'answer'; ui.act.startedAt = Date.now(); render(); const t = $('[data-bind=actText]'); if (t && t.focus) t.focus(); },
   cancelAct: () => { ui.act = null; render(); },
-  async submitAct() {
-    const a = ui.act, r = room(), L = lessonOf(r);
-    a.text = ($('[data-bind=actText]') || {}).value || a.text; if (!a.text.trim()) return toast('พิมพ์คำตอบก่อน');
-    const expired = a.timed && Date.now() - a.startedAt > MISSION_MS, ev = await evaluate(a.text, L, a.kind);
-    a.ev = ev;
-    if (a.kind === 'civic') { a.suggest = expired ? 'fail' : ev.verdict; if (expired) ev.note = 'เกินเวลา 30 นาที'; }
-    if (a.kind === 'trait') a.suggest = traitGrade(ev, a.text);
-    if (a.kind === 'ethics') a.suggest = ev.verdict === 'pass' ? 'right' : 'wrong';
-    if (a.kind === 'audit') a.suggest = ev.auditScore ?? 0;
-    render();
-  },
+  submitAct: () => submitAnswer(false),
   confirmAct: () => {
     const a = ui.act, r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === a.pid), v = $('#vSel').value; let msg;
     if (a.kind === 'civic') msg = resolveCivic(r, L, p, a.owner, v, a.trait);
@@ -414,13 +456,11 @@ const H = {
     ui.act = null; save(); toast(msg);
     if (r.status === 'ended') go('end'); else render();
   },
-  manualAdj: () => {
-    const r = room(), n = (id) => parseInt($(id).value, 10) || 0, pid = $('#mPlayer').value, why = $('#mWhy').value.trim();
-    if (!why) return toast('กรอกเหตุผล');
-    const d = [n('#mLife'), n('#mCoop'), n('#mCity')];
-    if (!pid && (d[0] || d[1])) return toast('เลือกผู้เล่นเมื่อปรับดัชนีชีวิต/แต้มร่วมมือ');
-    applyDelta(r, r.players.find((p) => p.id === pid) || null, d, 'การ์ดข่าวสาร: ' + why); save();
-    if (r.status === 'ended') go('end'); else { toast('บันทึกแล้ว'); render(); }
+  adj: (b) => {
+    const r = room(), p = b.dataset.pid ? r.players.find((x) => x.id === b.dataset.pid) : null, d = (+b.dataset.d) * ui.step, delta = [0, 0, 0];
+    delta[{ life: 0, coop: 1, city: 2 }[b.dataset.f]] = d;
+    applyDelta(r, p, delta, 'ปรับคะแนนด้วยตนเอง'); save();
+    if (r.status === 'ended') go('end'); else render();
   },
   tab: (b) => go('post', { tab: b.dataset.t }),
   async sendEv(b) {
@@ -464,9 +504,11 @@ document.addEventListener('input', (e) => {
   const b = e.target.dataset && e.target.dataset.bind;
   if (b === 'preAns') ui.pre.ans[+e.target.dataset.i] = e.target.value;
   if (b === 'actText' && ui.act) ui.act.text = e.target.value;
+  if (b === 'adjStep') ui.step = Math.max(1, parseInt(e.target.value, 10) || 1);
 });
 document.addEventListener('change', (e) => {
-  const b = e.target.dataset && e.target.dataset.bind; if (!b || b === 'preAns' || b === 'actText') return;
+  const b = e.target.dataset && e.target.dataset.bind; if (!b || b === 'preAns' || b === 'actText' || b === 'adjStep') return;
+  if (b === 'actSet') { if (ui.act) ui.act[e.target.dataset.f] = e.target.value; return; }
   ui[b] = e.target.value; if (b === 'tRoom' || b === 'slotRole' || b === 'slotTrait' || b === 'auditTarget') return; render();
 });
 

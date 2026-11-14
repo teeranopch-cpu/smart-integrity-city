@@ -16,6 +16,8 @@ textarea{min-height:110px}
 button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:var(--brand);color:#fff}
 button.alt{background:transparent;color:#fff;border:1px solid #8fb0dc}
 button.danger{background:#a83a3a}
+.scroll{overflow-x:auto}.scroll td,.scroll th{white-space:nowrap}
+button.sm{padding:2px 12px;min-width:36px}
 button:disabled{opacity:.5;cursor:not-allowed}
 .top button{background:rgba(255,255,255,.18)}
 table{width:100%;border-collapse:collapse;font-size:.92rem}
