@@ -124,17 +124,26 @@ function vLobby() {
 
 function vPretest() {
   const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pre.pid), P = ui.pre, n = L.pretest.length, q = L.pretest[P.i];
-  const head = `<div class="card"><h2>Pre-Test: ${esc(p.name)}</h2><div class="muted">ข้อ ${P.i + 1} จาก ${n}</div><div class="prog"><i style="width:${(P.i / n) * 100}%"></i></div></div>`;
+  const done = P.phase === 'result' ? P.i + 1 : P.i;
+  const head = `<div class="card"><h2>Pre-Test: ${esc(p.name)}</h2><div class="muted">ข้อ ${P.i + 1} จาก ${n}</div><div class="prog"><i style="width:${(done / n) * 100}%"></i></div></div>`;
+  const qBox = `<div class="q"><b>ข้อ ${P.i + 1} (${traitName(q.trait)})</b><br>${esc(q.q)}</div>`;
   if (P.phase === 'read') {
-    return head + `<div class="card"><div class="q"><b>ข้อ ${P.i + 1} (${traitName(q.trait)})</b><br>${esc(q.q)}</div>
+    return head + `<div class="card">${qBox}
       <p class="muted">ให้อ่านโจทย์ให้เข้าใจก่อน เมื่อพร้อมแล้วกด "เริ่มทำ" ระบบจะเริ่มนับเวลา 30 วินาที</p>
       <p class="row"><button data-act="beginQ">เริ่มทำ</button><button class="alt" data-act="enter" data-code="${r.code}">ยกเลิก</button></p></div>`;
   }
-  return head + `<div class="card"><div class="q"><b>ข้อ ${P.i + 1} (${traitName(q.trait)})</b><br>${esc(q.q)}</div>
+  if (P.phase === 'result') {
+    const sc = P.scores[P.i], last = P.i + 1 >= n;
+    const label = { pass: 'ตอบเหมาะสม', fail: 'ยังไม่ชัดเจน', corrupt: 'ตอบเชิงทุจริต' }[sc.verdict] || '';
+    return head + `<div class="card">${qBox}<div class="q"><b>คำตอบ:</b> ${esc(P.ans[P.i] || '') || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>
+      <div class="muted">คะแนนข้อนี้</div><div class="big">${sc.score} / 10</div><div class="muted">${label} · ประเมินเบื้องต้นโดยระบบ</div>
+      <p><button data-act="preNext">${last ? 'จบ Pre-Test' : 'ข้อถัดไป'}</button></p></div>`;
+  }
+  return head + `<div class="card">${qBox}
     <div class="row"><span class="muted">เหลือเวลา</span><span class="big" id="ptimer">00:30</span></div>
     <textarea id="preText" data-bind="preAns" data-i="${P.i}" placeholder="พิมพ์คำตอบ...">${esc(P.ans[P.i] || '')}</textarea>
-    <p class="row"><button data-act="nextQ">${P.i + 1 < n ? 'ส่งคำตอบข้อนี้' : 'ส่งคำตอบและจบ Pre-Test'}</button></p>
-    <p class="muted">หมดเวลาแล้วระบบจะส่งคำตอบที่พิมพ์ไว้และไปข้อถัดไปอัตโนมัติ</p></div>`;
+    <p class="row"><button data-act="nextQ">ส่งคำตอบข้อนี้</button></p>
+    <p class="muted">หมดเวลาแล้วระบบจะส่งคำตอบที่พิมพ์ไว้อัตโนมัติ และแสดงคะแนนข้อนี้</p></div>`;
 }
 
 function barCity(r) { const pct = Math.min(100, (r.city / r.cityStart) * 100); return `<div class="bar"><i style="width:${pct}%"></i></div>`; }
@@ -142,6 +151,7 @@ function barCity(r) { const pct = Math.min(100, (r.city / r.cityStart) * 100); r
 function vGame() {
   const r = room(), L = lessonOf(r);
   if (r.status === 'ended') return vEnd();
+  if (ui.act && (ui.act.stage === 'answer' || ui.act.stage === 'review')) return `<div class="card">${vAct()}</div>`;
   if (!ui.actor || !r.players.find((p) => p.id === ui.actor)) ui.actor = r.players[0].id;
   return `
   <div class="card"><div class="row" style="justify-content:space-between"><div><div class="muted">ดัชนีเมืองสุจริต</div><div class="big">${r.city}</div></div>
@@ -402,20 +412,23 @@ const H = {
     if (!(c >= 1)) return toast('ดัชนีเมืองเริ่มต้นไม่ถูกต้อง');
     r.durationMin = d; r.cityStart = c; r.city = c; save(); toast('บันทึกแล้ว'); render();
   },
-  startPre: (b) => go('pretest', { pre: { pid: b.dataset.pid, ans: [], i: 0, phase: 'read', busy: false } }),
+  startPre: (b) => go('pretest', { pre: { pid: b.dataset.pid, ans: [], scores: [], i: 0, phase: 'read', busy: false } }),
   beginQ: () => { ui.pre.phase = 'answer'; ui.pre.startedAt = Date.now(); render(); const t = $('#preText'); if (t && t.focus) t.focus(); },
-  async nextQ() {
+  async nextQ() { // ส่งคำตอบข้อนี้ → ประเมิน → แสดงคะแนนข้อนี้
     const P = ui.pre; if (!P || P.busy || P.phase !== 'answer') return; P.busy = true;
     const t = $('#preText'); if (t && typeof t.value === 'string' && t.value) P.ans[P.i] = t.value;
-    if (P.i + 1 < lessonOf(room()).pretest.length) { P.i += 1; P.phase = 'read'; P.busy = false; return render(); }
+    const res = await evaluate(P.ans[P.i] || '', lessonOf(room()), 'pretest');
+    P.scores[P.i] = { score: preScoreFromVerdict(res), verdict: res.verdict };
+    P.phase = 'result'; P.busy = false; render();
+  },
+  async preNext() {
+    const P = ui.pre; if (!P || P.phase !== 'result') return;
+    if (P.i + 1 < lessonOf(room()).pretest.length) { P.i += 1; P.phase = 'read'; return render(); }
     await H.finishPre();
   },
   async finishPre() {
-    const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pre.pid), sum = {}, cnt = {};
-    for (let i = 0; i < L.pretest.length; i++) {
-      const t = L.pretest[i], res = await evaluate(ui.pre.ans[i] || '', L, 'pretest'), s = preScoreFromVerdict(res);
-      sum[t.trait] = (sum[t.trait] || 0) + s; cnt[t.trait] = (cnt[t.trait] || 0) + 1;
-    }
+    const r = room(), L = lessonOf(r), P = ui.pre, p = r.players.find((x) => x.id === P.pid), sum = {}, cnt = {};
+    L.pretest.forEach((q, i) => { sum[q.trait] = (sum[q.trait] || 0) + (P.scores[i] ? P.scores[i].score : 0); cnt[q.trait] = (cnt[q.trait] || 0) + 1; });
     p.pre = {}; TRAITS.forEach((t) => { p.pre[t.id] = cnt[t.id] ? Math.round(sum[t.id] / cnt[t.id]) : 5; });
     p.traitGame = {}; save(); ui.pre = null; toast('บันทึกผล Pre-Test แล้ว'); go('lobby');
   },
@@ -433,7 +446,7 @@ const H = {
     if (!p) return toast('เลือกผู้เล่นก่อน');
     if (a.kind === 'audit') {
       if (a.inspector === a.pid) return toast('ผู้ตรวจสอบและผู้ถูกตรวจสอบต้องเป็นคนละคน');
-      Object.assign(a, { title: 'ภารกิจตรวจสอบ', q: rnd(L.audit), stage: 'answer', timed: false }); return render();
+      Object.assign(a, { title: 'ภารกิจตรวจสอบ', q: rnd(L.audit), stage: 'answer', timed: false }); return go('game');
     }
     if (a.kind === 'civic') {
       const own = a.role === p.role; let m;
@@ -444,8 +457,8 @@ const H = {
     if (a.kind === 'ethics') { const e = rnd(L.ethics); Object.assign(a, { trait: e.t, title: 'ช่องท้าทายจริยธรรม', q: e.q }); }
     Object.assign(a, { timed: true, stage: 'read' }); render();
   },
-  beginAct: () => { ui.act.stage = 'answer'; ui.act.startedAt = Date.now(); render(); const t = $('[data-bind=actText]'); if (t && t.focus) t.focus(); },
-  cancelAct: () => { ui.act = null; render(); },
+  beginAct: () => { ui.act.stage = 'answer'; ui.act.startedAt = Date.now(); go('game'); const t = $('[data-bind=actText]'); if (t && t.focus) t.focus(); },
+  cancelAct: () => { ui.act = null; go('game'); },
   submitAct: () => submitAnswer(false),
   confirmAct: () => {
     const a = ui.act, r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === a.pid), v = $('#vSel').value; let msg;
@@ -454,7 +467,7 @@ const H = {
     if (a.kind === 'ethics') msg = resolveEthics(r, L, p, a.trait, v === 'right');
     if (a.kind === 'audit') msg = resolveAudit(r, L, p, { score: parseInt(v, 10), lowChoice: $('#lowSel').value });
     ui.act = null; save(); toast(msg);
-    if (r.status === 'ended') go('end'); else render();
+    if (r.status === 'ended') go('end'); else go('game');
   },
   adj: (b) => {
     const r = room(), p = b.dataset.pid ? r.players.find((x) => x.id === b.dataset.pid) : null, d = (+b.dataset.d) * ui.step, delta = [0, 0, 0];
