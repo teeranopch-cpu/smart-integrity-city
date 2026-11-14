@@ -13,7 +13,7 @@ const loadDB = () => {
 let DB = loadDB();
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { toast('พื้นที่จัดเก็บเต็ม (รูปหลักฐานอาจใหญ่เกินไป)'); } };
 
-let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', authMode: 'login', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 5 };
+let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', authMode: 'login', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 1 };
 
 // ===== ตัวช่วย =====
 const $ = (s) => document.querySelector(s);
@@ -167,7 +167,7 @@ function vAdjust(r) {
   const b = (pid, f, d) => `<button class="alt sm" data-act="adj" data-pid="${pid}" data-f="${f}" data-d="${d}" aria-label="${d > 0 ? 'บวก' : 'ลบ'}">${d > 0 ? '+' : '−'}</button>`;
   const cell = (pid, f, v) => `<td><div class="row" style="flex-wrap:nowrap">${v === null ? '' : `<b style="min-width:2.2em">${v}</b>`}${b(pid, f, -1)}${b(pid, f, 1)}</div></td>`;
   return `<div class="card"><h3>ปรับคะแนนด้วยตนเอง (บวก/ลบ)</h3>
-    <div class="row"><label style="margin:0">ปรับครั้งละ</label><input type="number" min="1" style="width:90px" data-bind="adjStep" value="${ui.step}"><span class="muted">แต้ม</span></div>
+    <p class="muted">กดปุ่มแต่ละครั้งปรับ 1 แต้ม</p>
     <div class="scroll"><table><tr><th>ผู้เล่น</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ดัชนีเมือง</th></tr>
     ${r.players.map((p) => `<tr><td>${esc(p.name)}</td>${cell(p.id, 'life', p.life)}${cell(p.id, 'coop', p.coop)}${cell(p.id, 'city', null)}</tr>`).join('')}
     <tr><td><b>ดัชนีเมือง (ทั้งเมือง)</b></td><td></td><td></td>${cell('', 'city', r.city)}</tr></table></div></div>`;
@@ -504,10 +504,9 @@ document.addEventListener('input', (e) => {
   const b = e.target.dataset && e.target.dataset.bind;
   if (b === 'preAns') ui.pre.ans[+e.target.dataset.i] = e.target.value;
   if (b === 'actText' && ui.act) ui.act.text = e.target.value;
-  if (b === 'adjStep') ui.step = Math.max(1, parseInt(e.target.value, 10) || 1);
 });
 document.addEventListener('change', (e) => {
-  const b = e.target.dataset && e.target.dataset.bind; if (!b || b === 'preAns' || b === 'actText' || b === 'adjStep') return;
+  const b = e.target.dataset && e.target.dataset.bind; if (!b || b === 'preAns' || b === 'actText') return;
   if (b === 'actSet') { if (ui.act) ui.act[e.target.dataset.f] = e.target.value; return; }
   ui[b] = e.target.value; if (b === 'tRoom' || b === 'slotRole' || b === 'slotTrait' || b === 'auditTarget') return; render();
 });
