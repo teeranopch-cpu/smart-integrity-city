@@ -1,0 +1,14 @@
+{
+  "name": "smart-integrity-city",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "serve -l 3000 .",
+    "start": "serve -l 3000 .",
+    "build": "node test.js",
+    "lint": "node -c data.js && node -c core.js && node -c app.js"
+  },
+  "dependencies": {
+    "serve": "^14.2.1"
+  }
+}

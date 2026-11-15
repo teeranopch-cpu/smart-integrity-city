@@ -11,8 +11,8 @@ function countBad(text, words) {
   for (const w of words) {
     let i = text.indexOf(w);
     while (i !== -1) {
-      const before = text.slice(Math.max(0, i - 8), i);
-      if (!/(ไม่|ปฏิเสธ|ห้าม|แจ้งเรื่อง|รายงาน|ต่อต้าน|ป้องกัน)/.test(before)) n++;
+      const before = text.slice(Math.max(0, i - 24), i);
+      if (!/(ไม่|ปฏิเสธ|ห้าม|แจ้ง|รายงาน|ต้าน|ป้องกัน|ปราศจาก|ขจัด|ลด|ไร้|ปลอด|แก้|ปัญหา|ตรวจสอบ|สอบสวน|เปิดโปง|ผลกระทบ|ลงโทษ|ก่อให้เกิด|กระทำผิด|Zero)/i.test(before)) n++;
       i = text.indexOf(w, i + w.length);
     }
   }
@@ -104,9 +104,31 @@ function resolveEthics(room, lesson, player, trait, right) {
   return right ? 'ตอบถูก' : 'ตอบผิด';
 }
 
-// ตรวจสอบ: escape = ใช้การ์ดหนี, score 0-5, lowChoice = 'back'|'penalty'
-function resolveAudit(room, lesson, target, { escape, score, lowChoice }) {
+// ตรวจคำตอบช่องตรวจสอบ: ถ้าตอบเชิงทุจริตถือว่าผิด, มิฉะนั้นตรวจจากกลุ่มคำสำคัญของโจทย์ (หรือ evalText)
+function evalAudit(text, lesson, qItem) {
+  const t = (text || '').trim();
+  const ev = evalText(t, lesson);
+  if (!t || ev.verdict === 'corrupt') return { right: false, ev, score: 0 };
+  if (qItem && Array.isArray(qItem.keys)) {
+    const sc = scoreExam(t, qItem);
+    const right = sc.hits >= 2 || (sc.hits >= 1 && t.length >= 12) || ev.verdict === 'pass';
+    return { right, ev, score: sc.score };
+  }
+  return { right: ev.verdict === 'pass', ev, score: ev.auditScore || 0 };
+}
+
+// ตรวจสอบ: โหมดใหม่ { right: true|false } (+10 ชีวิต/+10 เมือง หรือ -10/-10) และรองรับโหมดเดิม { escape, score, lowChoice }
+function resolveAudit(room, lesson, target, opt = {}) {
   const P = lesson.points;
+  if (typeof opt.right === 'boolean') {
+    addTrait(target, 'honesty', opt.right ? 1 : -1);
+    const d = opt.right ? (P.auditRight || [10, 0, 10]) : (P.auditWrong || [-10, 0, -10]);
+    applyDelta(room, target, d, 'ช่องตรวจสอบ: ' + (opt.right ? 'ตอบถูก' : 'ตอบผิด'));
+    return opt.right
+      ? 'ตอบถูก: เพิ่มดัชนีชีวิต +10 และดัชนีเมือง +10'
+      : 'ตอบผิด: ลบดัชนีชีวิต −10 และดัชนีเมือง −10';
+  }
+  const { escape, score, lowChoice } = opt;
   if (escape) {
     applyDelta(room, target, P.escape, 'ใช้การ์ดหนีการตรวจสอบ');
     return 'ใช้การ์ดหนีการตรวจสอบ: หักดัชนีเมือง −10 และดัชนีชีวิต −10';
@@ -171,5 +193,5 @@ function totalScore(player, lesson) {
 const TRAITS_COUNT = 5;
 
 if (typeof module !== 'undefined') {
-  module.exports = { evalText, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
+  module.exports = { evalText, evalAudit, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
 }

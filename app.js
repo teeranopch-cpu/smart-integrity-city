@@ -11,6 +11,11 @@ const loadDB = () => {
       if (!l.pretest || !l.posttest || !l.posttest[0] || !l.posttest[0].keys || !l.pretest[0].keys) {
         l.pretest = JSON.parse(JSON.stringify(DEFAULT_LESSON.pretest)); l.posttest = JSON.parse(JSON.stringify(DEFAULT_LESSON.posttest)); l.passScore = DEFAULT_LESSON.passScore;
       }
+      if (!l.points) l.points = JSON.parse(JSON.stringify(DEFAULT_POINTS));
+      if (!l.points.auditRight) l.points.auditRight = [...DEFAULT_POINTS.auditRight];
+      if (!l.points.auditWrong) l.points.auditWrong = [...DEFAULT_POINTS.auditWrong];
+      if (!l.auditBank || typeof l.auditBank !== 'object') l.auditBank = JSON.parse(JSON.stringify(DEFAULT_LESSON.auditBank));
+      else ROLES.forEach((ro) => { if (!Array.isArray(l.auditBank[ro.id]) || !l.auditBank[ro.id].length) l.auditBank[ro.id] = JSON.parse(JSON.stringify(DEFAULT_LESSON.auditBank[ro.id])); });
     });
     return d;
   } catch { return initDB(); }
@@ -117,7 +122,7 @@ function vLobby() {
     <table><tr><th>ผู้เล่น</th><th>อาชีพ</th><th>ชื่อ</th><th>Pre-Test</th></tr>
     ${ROLES.map((ro, i) => { const p = byRole(ro.id); return `<tr><td>คนที่ ${i + 1}</td><td>${ro.icon} ${ro.name}</td>
       <td><input data-reg="${ro.id}" value="${esc(p ? p.name : '')}" placeholder="ชื่อผู้เล่น"></td>
-      <td>${p ? (p.pre ? `<span class="good">เสร็จแล้ว (${Object.values(p.pre).reduce((x, y) => x + y, 0)}/${L.pretest.length * EXAM_MAX})</span> ` : '<span class="bad">ยังไม่ทำ</span> ') + `<button class="alt" data-act="startPre" data-pid="${p.id}">${p.pre ? 'ทำใหม่' : 'ทำ Pre-Test'}</button>` : '<span class="muted">บันทึกชื่อก่อน</span>'}</td></tr>`; }).join('')}</table>
+      <td>${p ? (p.pre ? `<span class="good">เสร็จแล้ว (${Object.values(p.pre).reduce((x, y) => x + y, 0)}/${L.pretest.length * EXAM_MAX})</span>` : `<span class="bad">ยังไม่ทำ</span> <button class="alt" data-act="startPre" data-pid="${p.id}">ทำ Pre-Test</button>`) : '<span class="muted">บันทึกชื่อก่อน</span>'}</td></tr>`; }).join('')}</table>
     <p><button data-act="saveRoster">บันทึกรายชื่อ</button></p></div>
   <div class="card"><h3>ตั้งค่าเกม</h3>
     <div class="grid g2"><div><label>เวลาเล่น (นาที, ขั้นต่ำ 20)</label><input id="sDur" type="number" min="20" value="${r.durationMin}"></div>
@@ -225,7 +230,7 @@ function vAct() {
   if (a.stage === 'setup') {
     let body, btn;
     if (a.kind === 'audit') {
-      body = `<label>ผู้ตรวจสอบ</label><select data-bind="actSet" data-f="inspector">${pl(a.inspector)}</select><label>ผู้ถูกตรวจสอบ</label><select data-bind="actSet" data-f="pid">${pl(a.pid)}</select>`; btn = 'เริ่มตรวจสอบ';
+      body = `<label>ผู้ตรวจสอบ</label><select data-bind="actSet" data-f="inspector">${pl(a.inspector)}</select><label>ผู้ถูกตรวจสอบ</label><select data-bind="actSet" data-f="pid">${pl(a.pid)}</select>`; btn = 'สุ่มโจทย์';
     } else {
       body = `<label>เลือกผู้เล่น</label><select data-bind="actSet" data-f="pid">${pl(a.pid)}</select>`;
       if (a.kind === 'civic') { body += `<label>ตกช่องของอาชีพ</label><select data-bind="actSet" data-f="role">${roleOpts(a.role)}</select>`; btn = 'แสดงโจทย์'; }
@@ -249,9 +254,11 @@ function vAct() {
   if (a.kind === 'civic') sel = `<select id="vSel">${options([['pass', 'ผ่าน'], ['fail', 'ไม่ผ่าน'], ['corrupt', 'ตอบเชิงทุจริต']], a.suggest)}</select>`;
   if (a.kind === 'trait') sel = `<select id="vSel">${options([['good', 'ตอบดี'], ['ok', 'พอใช้'], ['bad', 'ไม่เหมาะสม']], a.suggest)}</select>`;
   if (a.kind === 'ethics') sel = `<select id="vSel">${options([['right', 'ถูก'], ['wrong', 'ผิด']], a.suggest)}</select>`;
-  if (a.kind === 'audit') sel = `<select id="vSel">${options([0, 1, 2, 3, 4, 5].map((n) => [String(n), n + ' คะแนน']), String(a.suggest))}</select>
-     <label>กรณี 1–3 คะแนน</label><select id="lowSel">${options([['penalty', 'หักแต้มตามตาราง'], ['back', 'เดินถอยหลังบนกระดาน']], 'penalty')}</select>`;
-  return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text) || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div><div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
+  if (a.kind === 'audit') sel = `<select id="vSel">${options([['right', 'ถูก (+10 ชีวิต, +10 เมือง)'], ['wrong', 'ผิด (−10 ชีวิต, −10 เมือง)']], a.suggest)}</select>`;
+  const ansHint = (a.qItem && a.qItem.ans)
+    ? `<details class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
+    : '';
+  return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text) || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>${ansHint}<div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
     <label>ยืนยันผลก่อนบันทึก (ผู้ควบคุมเกมแก้ไขได้)</label>${sel}
     <p class="row"><button data-act="confirmAct">ยืนยันและบันทึกแต้ม</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p></div>`;
 }
@@ -408,7 +415,13 @@ async function submitAnswer(auto) {
   if (a.kind === 'civic') a.suggest = ev.verdict;
   if (a.kind === 'trait') a.suggest = traitGrade(ev, a.text || '');
   if (a.kind === 'ethics') a.suggest = ev.verdict === 'pass' ? 'right' : 'wrong';
-  if (a.kind === 'audit') a.suggest = ev.auditScore ?? 0;
+  if (a.kind === 'audit') {
+    if (typeof window !== 'undefined' && typeof window.AI_EVALUATOR === 'function' && ev && ev.verdict) {
+      a.suggest = ev.verdict === 'pass' ? 'right' : 'wrong';
+    } else {
+      a.suggest = evalAudit(a.text || '', L, a.qItem).right ? 'right' : 'wrong';
+    }
+  }
   a.stage = 'review'; a.busy = false; render();
 }
 
@@ -467,7 +480,12 @@ const H = {
     if (!(c >= 1)) return toast('ดัชนีเมืองเริ่มต้นไม่ถูกต้อง');
     r.durationMin = d; r.cityStart = c; r.city = c; save(); toast('บันทึกแล้ว'); render();
   },
-  startPre: (b) => go('pretest', { pre: { pid: b.dataset.pid, ans: [], scores: [], i: 0, phase: 'read', busy: false } }),
+  startPre: (b) => {
+    const r = room(), p = r && r.players.find((x) => x.id === b.dataset.pid);
+    if (!p) return;
+    if (p.pre) return toast('ทำ Pre-Test แล้ว ไม่สามารถทำใหม่ได้');
+    go('pretest', { pre: { pid: b.dataset.pid, ans: [], scores: [], i: 0, phase: 'read', busy: false } });
+  },
   beginQ: () => examBegin(ui.pre),
   nextQ: () => examSubmit(ui.pre, lessonOf(room()).pretest, 'pretest'),
   async preNext() {
@@ -477,6 +495,7 @@ const H = {
   },
   async finishPre() {
     const r = room(), L = lessonOf(r), P = ui.pre, p = r.players.find((x) => x.id === P.pid), sum = {}, cnt = {};
+    if (p.pre) { ui.pre = null; return go('lobby'); }
     L.pretest.forEach((q, i) => { sum[q.trait] = (sum[q.trait] || 0) + (P.scores[i] ? P.scores[i].score : 0); cnt[q.trait] = (cnt[q.trait] || 0) + 1; });
     p.pre = {}; TRAITS.forEach((t) => { p.pre[t.id] = cnt[t.id] ? sum[t.id] : TRAIT_MAX / 2; }); // เต็ม 6 ต่อคุณลักษณะ
     p.preScores = P.scores.map((x) => x.score);
@@ -509,7 +528,22 @@ const H = {
     if (!p) return toast('เลือกผู้เล่นก่อน');
     if (a.kind === 'audit') {
       if (a.inspector === a.pid) return toast('ผู้ตรวจสอบและผู้ถูกตรวจสอบต้องเป็นคนละคน');
-      Object.assign(a, { title: 'ภารกิจตรวจสอบ', q: rnd(L.audit), stage: 'answer', timed: false }); return go('game');
+      const bank = (L.auditBank && Array.isArray(L.auditBank[p.role]) && L.auditBank[p.role].length) ? L.auditBank[p.role] : L.audit;
+      if (!r.usedAudit) r.usedAudit = {};
+      let pool = bank.map((item, idx) => ({ item, idx })).filter((x) => !(r.usedAudit[p.role] || []).includes(x.idx));
+      if (!pool.length) { r.usedAudit[p.role] = []; pool = bank.map((item, idx) => ({ item, idx })); }
+      const pick = rnd(pool);
+      r.usedAudit[p.role] = [...(r.usedAudit[p.role] || []), pick.idx];
+      const item = pick.item;
+      const qText = typeof item === 'string' ? item : item.q;
+      Object.assign(a, {
+        title: 'ภารกิจตรวจสอบ (' + roleName(p.role) + ')',
+        q: qText,
+        qItem: typeof item === 'string' ? null : item,
+        timed: true,
+        stage: 'read',
+      });
+      return go('game');
     }
     if (a.kind === 'civic') {
       const own = a.role === p.role; let m;
@@ -528,7 +562,7 @@ const H = {
     if (a.kind === 'civic') msg = resolveCivic(r, L, p, a.owner, v, a.trait);
     if (a.kind === 'trait') msg = resolveTrait(r, L, p, a.trait, v);
     if (a.kind === 'ethics') msg = resolveEthics(r, L, p, a.trait, v === 'right');
-    if (a.kind === 'audit') msg = resolveAudit(r, L, p, { score: parseInt(v, 10), lowChoice: $('#lowSel').value });
+    if (a.kind === 'audit') msg = resolveAudit(r, L, p, { right: v === 'right' });
     ui.notice = { who: p.name, title: a.title, msg }; ui.act = null; save(); toast(msg);
     if (r.status === 'ended') go('end'); else go('game');
   },

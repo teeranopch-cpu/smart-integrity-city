@@ -79,4 +79,25 @@ const part = C.scoreExam('ฉันจะส่งคืนเจ้าของ
 // เพดานคะแนน
 assert(L.posttest.every((x) => C.scoreExam(x.ans + x.ans, x).score <= 3));
 
+// 12) ช่องตรวจสอบแบบใหม่: ถูก +10 ชีวิต/+10 เมือง, ผิด -10/-10 และชุดข้อสอบ 6 อาชีพ อาชีพละ 10 ข้อ
+r = mkRoom(); p = C.newPlayer('D', 'police'); r.players.push(p);
+C.resolveAudit(r, L, p, { right: true });
+assert.deepStrictEqual([p.life, r.city], [10, 110]);
+C.resolveAudit(r, L, p, { right: false });
+assert.deepStrictEqual([p.life, r.city], [0, 100]);
+
+const auditRoles = ['police', 'gov', 'citizen', 'press', 'local', 'biz'];
+for (const role of auditRoles) {
+  assert(Array.isArray(L.auditBank[role]), 'missing auditBank for ' + role);
+  assert.strictEqual(L.auditBank[role].length, 10, role + ' should have 10 questions');
+  L.auditBank[role].forEach((item, i) => {
+    assert(item.q && item.ans && Array.isArray(item.keys) && item.keys.length === 3, role + ' #' + (i + 1));
+    assert(item.keys.every((g) => g.length > 0), role + ' keys #' + (i + 1));
+    assert.strictEqual(C.scoreExam(item.ans, item).score, 3, role + ' #' + (i + 1) + ' ans should score 3');
+    assert.strictEqual(C.evalAudit(item.ans, L, item).right, true, role + ' #' + (i + 1) + ' ans should pass evalAudit');
+    assert.strictEqual(C.evalAudit('', L, item).right, false, role + ' #' + (i + 1) + ' empty should fail');
+    assert.strictEqual(C.evalAudit('รับเงินใต้โต๊ะและปกปิดไว้', L, item).right, false, role + ' #' + (i + 1) + ' corrupt should fail');
+  });
+}
+
 console.log('ทุกการทดสอบผ่าน');
