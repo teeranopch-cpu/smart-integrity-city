@@ -16,6 +16,11 @@ const loadDB = () => {
       if (!l.points.auditWrong) l.points.auditWrong = [...DEFAULT_POINTS.auditWrong];
       if (!l.auditBank || typeof l.auditBank !== 'object') l.auditBank = JSON.parse(JSON.stringify(DEFAULT_LESSON.auditBank));
       else ROLES.forEach((ro) => { if (!Array.isArray(l.auditBank[ro.id]) || !l.auditBank[ro.id].length) l.auditBank[ro.id] = JSON.parse(JSON.stringify(DEFAULT_LESSON.auditBank[ro.id])); });
+      if (!l.missions || typeof l.missions !== 'object' || ROLES.some((ro) => !Array.isArray(l.missions[ro.id]) || l.missions[ro.id].length < 3 || !Array.isArray(l.missions[ro.id][0].items))) {
+        l.missions = JSON.parse(JSON.stringify(DEFAULT_LESSON.missions));
+      }
+      if (!l.helpBank || typeof l.helpBank !== 'object') l.helpBank = JSON.parse(JSON.stringify(DEFAULT_LESSON.helpBank));
+      else ROLES.forEach((ro) => { if (!Array.isArray(l.helpBank[ro.id]) || !l.helpBank[ro.id].length) l.helpBank[ro.id] = JSON.parse(JSON.stringify(DEFAULT_LESSON.helpBank[ro.id])); });
     });
     return d;
   } catch { return initDB(); }
@@ -215,7 +220,7 @@ function vActPage(r) {
   let banner = `<h1 class="slot">${KIND_NAMES[a.kind]}</h1>`;
   if (a.stage !== 'setup' && p) {
     let slot = '';
-    if (a.kind === 'civic') slot = `${roleIcon(a.owner)} ช่องของอาชีพ${roleName(a.owner)}`;
+    if (a.kind === 'civic') slot = `${roleIcon(a.owner)} ${a.own ? 'ภารกิจของตัวเอง · อาชีพ' : 'ช่องช่วยเหลือ · ช่องของอาชีพ'}${roleName(a.owner)}`;
     if (a.kind === 'trait') slot = `ช่องคุณลักษณะ: ${traitName(a.trait)}`;
     if (a.kind === 'ethics') slot = 'ช่องท้าทายจริยธรรม';
     if (a.kind === 'audit') { const ins = r.players.find((x) => x.id === a.inspector); slot = `ช่องตรวจสอบ · ผู้ตรวจสอบ: ${esc(ins ? ins.name : '')}`; }
@@ -239,6 +244,22 @@ function vAct() {
     }
     return `${body}<p class="row"><button data-act="actGo">${btn}</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>`;
   }
+  if (a.kind === 'civic' && a.mode === 'tf') {
+    const headTf = `<div class="q big"><b>${esc(a.title)}</b>${a.desc ? `<div class="muted" style="margin-top:4px">${esc(a.desc)}</div>` : ''}</div>`;
+    if (!a.ev) {
+      const doneCnt = (a.tfAns || []).filter((v) => v !== null).length;
+      return headTf + `<div class="row" style="justify-content:space-between;margin:8px 0"><span class="muted">พิจารณาข้อความทั้ง ${a.items.length} ข้อ แล้วติ๊ก ถูก หรือ ผิด (เกณฑ์ผ่าน ${Math.min(TF_PASS_MIN, a.items.length)}/${a.items.length} ข้อ)</span><b id="tfCount">ตอบแล้ว ${doneCnt} / ${a.items.length} ข้อ</b></div>` +
+        `<div class="tf-list">${a.items.map((it, i) => {
+          const v = a.tfAns[i];
+          return `<div class="tf-item" data-tf-row="${i}"><div class="tf-q"><b>ข้อ ${i + 1}.</b> ${esc(it.q)}</div><div class="tf-btns"><button type="button" class="alt tf-btn ${v === true ? 'on-true' : ''}" data-act="pickTf" data-i="${i}" data-v="true">✓ ถูก</button><button type="button" class="alt tf-btn ${v === false ? 'on-false' : ''}" data-act="pickTf" data-i="${i}" data-v="false">✗ ผิด</button></div></div>`;
+        }).join('')}</div>` +
+        `<p class="row"><button data-act="submitTf">ส่งคำตอบ (${a.items.length} ข้อ)</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p>`;
+    }
+    const selTf = `<select id="vSel">${options([['pass', 'ผ่าน (เลื่อนขั้นภารกิจ +1)'], ['fail', 'ไม่ผ่าน (อยู่ขั้นเดิม)']], a.suggest)}</select>`;
+    return headTf + `<div class="card" style="background:var(--bg)"><div class="muted">ผลตรวจภารกิจตัวละคร</div><div class="big ${a.ev.pass ? 'good' : 'bad'}">${a.ev.correct} / ${a.ev.total} ข้อ</div><div class="muted">${esc(a.ev.note)}</div></div>` +
+      `<div class="tf-list">${a.ev.details.map((d, i) => `<div class="tf-item"><div><div><b>ข้อ ${i + 1}.</b> ${esc(d.q)}</div><div class="muted" style="margin-top:4px">คำตอบที่เลือก: <b>${d.pick ? 'ถูก' : 'ผิด'}</b> · เฉลย: <b>${d.expected ? 'ถูก' : 'ผิด'}</b></div></div><span class="pill ${d.ok ? 'good' : 'bad'}">${d.ok ? '✓ ผ่านความรู้' : '✗ เรียนรู้เพิ่มเติม'}</span></div>`).join('')}</div>` +
+      `<div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note)})<br><label>ยืนยันผลก่อนบันทึก (ผู้ควบคุมเกมแก้ไขได้)</label>${selTf}<p class="row"><button data-act="confirmAct">ยืนยันและบันทึกแต้ม</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p></div>`;
+  }
   const head = `<div class="q big"><b>${esc(a.title)}</b><br>${esc(a.q)}</div>`;
   if (a.stage === 'read') {
     return head + `<p class="muted">อ่านโจทย์ให้เข้าใจก่อน เมื่อพร้อมกด "เริ่มทำ" ระบบจะเริ่มนับเวลา 30 วินาที</p>
@@ -255,10 +276,13 @@ function vAct() {
   if (a.kind === 'trait') sel = `<select id="vSel">${options([['good', 'ตอบดี'], ['ok', 'พอใช้'], ['bad', 'ไม่เหมาะสม']], a.suggest)}</select>`;
   if (a.kind === 'ethics') sel = `<select id="vSel">${options([['right', 'ถูก'], ['wrong', 'ผิด']], a.suggest)}</select>`;
   if (a.kind === 'audit') sel = `<select id="vSel">${options([['right', 'ถูก (+10 ชีวิต, +10 เมือง)'], ['wrong', 'ผิด (−10 ชีวิต, −10 เมือง)']], a.suggest)}</select>`;
-  const ansHint = (a.qItem && a.qItem.ans)
-    ? `<details class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
+  const alignBox = (typeof a.ev.aligned === 'boolean')
+    ? `<div class="q"><b>ตรวจความสอดคล้องกับแนวคำตอบ:</b> <span class="${a.ev.aligned ? 'good' : 'bad'}">${a.ev.aligned ? '✓ ' : '✗ '}${esc(a.ev.note)}</span></div>`
     : '';
-  return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text) || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>${ansHint}<div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
+  const ansHint = (a.qItem && a.qItem.ans)
+    ? `<details ${(a.kind === 'audit' || a.kind === 'civic') ? 'open ' : ''}class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ / แนวทางเกณฑ์ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
+    : '';
+  return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text) || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>${alignBox}${ansHint}<div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
     <label>ยืนยันผลก่อนบันทึก (ผู้ควบคุมเกมแก้ไขได้)</label>${sel}
     <p class="row"><button data-act="confirmAct">ยืนยันและบันทึกแต้ม</button><button class="alt" data-act="cancelAct">ยกเลิก</button></p></div>`;
 }
@@ -332,7 +356,7 @@ function vTeacher() {
   let body = '';
   if (ui.tTab === 'lessons' || ui.tTab === 'points') body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>`;
   if (ui.tTab === 'lessons') {
-    body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจ 3 ขั้นของ 6 ตัวละคร, สถานการณ์ช่วยเหลือ, คลังคำถาม, คำสำคัญที่ใช้ตรวจ</p>
+    body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจตัวละคร 3 ขั้น (ขั้นละ 10 ข้อ ถูก/ผิด) ของ 6 ตัวละคร, คลังภารกิจช่วยเหลือ (60 สถานการณ์), คลังข้อสอบตรวจสอบ (60 ข้อ), คำสำคัญที่ใช้ตรวจ</p>
       <textarea id="lJson" style="min-height:420px;font-family:monospace;font-size:.8rem">${esc(JSON.stringify(L, null, 2))}</textarea>
       <p class="row"><button data-act="saveLesson">บันทึก</button><button class="alt" data-act="copyLesson">ทำสำเนาเป็นชุดใหม่</button><button class="danger" data-act="delLesson" ${DB.lessons.length < 2 ? 'disabled' : ''}>ลบชุดนี้</button></p>`;
   }
@@ -411,15 +435,28 @@ async function submitAnswer(auto) {
   if (!auto && !(a.text || '').trim()) return toast('พิมพ์คำตอบก่อน');
   a.busy = true;
   const L = lessonOf(room()), ev = await evaluate(a.text || '', L, a.kind);
+  const hasExternalAI = typeof window !== 'undefined' && typeof window.AI_EVALUATOR === 'function';
   a.ev = ev;
-  if (a.kind === 'civic') a.suggest = ev.verdict;
+  if (a.kind === 'civic') {
+    if (!hasExternalAI && a.qItem && Array.isArray(a.qItem.keys)) {
+      const helpRes = evalHelp(a.text || '', L, a.qItem);
+      a.suggest = helpRes.verdict;
+      ev.note = helpRes.note;
+      ev.aligned = helpRes.verdict === 'pass';
+    } else {
+      a.suggest = ev.verdict;
+    }
+  }
   if (a.kind === 'trait') a.suggest = traitGrade(ev, a.text || '');
   if (a.kind === 'ethics') a.suggest = ev.verdict === 'pass' ? 'right' : 'wrong';
   if (a.kind === 'audit') {
-    if (typeof window !== 'undefined' && typeof window.AI_EVALUATOR === 'function' && ev && ev.verdict) {
+    if (hasExternalAI && ev && ev.verdict) {
       a.suggest = ev.verdict === 'pass' ? 'right' : 'wrong';
     } else {
-      a.suggest = evalAudit(a.text || '', L, a.qItem).right ? 'right' : 'wrong';
+      const auditRes = evalAudit(a.text || '', L, a.qItem);
+      a.suggest = auditRes.right ? 'right' : 'wrong';
+      ev.note = auditRes.note;
+      ev.aligned = auditRes.right;
     }
   }
   a.stage = 'review'; a.busy = false; render();
@@ -546,13 +583,77 @@ const H = {
       return go('game');
     }
     if (a.kind === 'civic') {
-      const own = a.role === p.role; let m;
-      if (own) { if (p.step >= 3) return toast('ภารกิจส่วนตัวของผู้เล่นนี้ครบ 3 ขั้นแล้ว'); m = L.missions[p.role][p.step]; } else m = L.help[a.role];
-      Object.assign(a, { owner: a.role, trait: m.t, title: own ? 'ภารกิจตัวละคร (ขั้น ' + (p.step + 1) + ')' : 'ภารกิจช่วยเหลือ ' + roleName(a.role), q: m.q });
+      const own = a.role === p.role;
+      if (own) {
+        if (p.step >= 3) return toast('ภารกิจส่วนตัวของผู้เล่นนี้ครบ 3 ขั้นแล้ว');
+        const m = L.missions[p.role][p.step];
+        Object.assign(a, {
+          owner: a.role,
+          own: true,
+          mode: 'tf',
+          trait: m.t,
+          title: 'ภารกิจที่ ' + (p.step + 1) + ' : ' + m.title,
+          desc: m.desc || '',
+          items: m.items || [],
+          tfAns: Array((m.items || []).length).fill(null),
+          timed: false,
+          stage: 'answer',
+        });
+        return render();
+      }
+      const bank = (L.helpBank && Array.isArray(L.helpBank[a.role]) && L.helpBank[a.role].length) ? L.helpBank[a.role] : [L.help[a.role]];
+      if (!r.usedHelp) r.usedHelp = {};
+      let pool = bank.map((item, idx) => ({ item, idx })).filter((x) => !(r.usedHelp[a.role] || []).includes(x.idx));
+      if (!pool.length) { r.usedHelp[a.role] = []; pool = bank.map((item, idx) => ({ item, idx })); }
+      const pick = rnd(pool);
+      r.usedHelp[a.role] = [...(r.usedHelp[a.role] || []), pick.idx];
+      const item = pick.item;
+      Object.assign(a, {
+        owner: a.role,
+        own: false,
+        mode: 'text',
+        trait: item.t,
+        title: 'ภารกิจช่วยเหลือ ' + roleName(a.role) + (item.title ? ' : ' + item.title : ''),
+        q: item.q,
+        qItem: item.keys ? item : null,
+        timed: true,
+        stage: 'read',
+      });
+      return go('game');
     }
     if (a.kind === 'trait') Object.assign(a, { title: 'ช่องคุณลักษณะ: ' + traitName(a.trait), q: rnd(L.traits[a.trait]) });
     if (a.kind === 'ethics') { const e = rnd(L.ethics); Object.assign(a, { trait: e.t, title: 'ช่องท้าทายจริยธรรม', q: e.q }); }
     Object.assign(a, { timed: true, stage: 'read' }); render();
+  },
+  pickTf: (b) => {
+    const a = ui.act; if (!a || a.mode !== 'tf' || a.ev) return;
+    const i = +b.dataset.i, val = b.dataset.v === 'true';
+    a.tfAns[i] = val;
+    const row = document.querySelector(`[data-tf-row="${i}"]`);
+    if (row) {
+      row.querySelectorAll('.tf-btn').forEach((btn) => {
+        const bv = btn.dataset.v === 'true';
+        btn.classList.toggle('on-true', val === true && bv === true);
+        btn.classList.toggle('on-false', val === false && bv === false);
+      });
+    }
+    const cntEl = $('#tfCount');
+    if (cntEl) cntEl.textContent = `ตอบแล้ว ${a.tfAns.filter((v) => v !== null).length} / ${a.items.length} ข้อ`;
+  },
+  submitTf: () => {
+    const a = ui.act; if (!a || a.mode !== 'tf' || a.ev) return;
+    const missing = a.tfAns.findIndex((v) => v === null);
+    if (missing !== -1) {
+      const row = document.querySelector(`[data-tf-row="${missing}"]`);
+      if (row && row.scrollIntoView) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return toast('กรุณาติ๊ก ถูก หรือ ผิด ให้ครบทุกข้อ (ข้อ ' + (missing + 1) + ')');
+    }
+    const res = evalTfMission(a.tfAns, a.items);
+    a.ev = res;
+    a.suggest = res.verdict;
+    a.stage = 'review';
+    render();
+    window.scrollTo(0, 0);
   },
   beginAct: () => { ui.act.stage = 'answer'; ui.act.startedAt = Date.now(); go('game'); const t = $('[data-bind=actText]'); if (t && t.focus) t.focus(); },
   cancelAct: () => { ui.act = null; go('game'); },

@@ -97,6 +97,39 @@ for (const role of auditRoles) {
     assert.strictEqual(C.evalAudit(item.ans, L, item).right, true, role + ' #' + (i + 1) + ' ans should pass evalAudit');
     assert.strictEqual(C.evalAudit('', L, item).right, false, role + ' #' + (i + 1) + ' empty should fail');
     assert.strictEqual(C.evalAudit('รับเงินใต้โต๊ะและปกปิดไว้', L, item).right, false, role + ' #' + (i + 1) + ' corrupt should fail');
+    assert.strictEqual(C.evalAudit('วันนี้อากาศดีมากเลยไปเที่ยวทะเลอย่างโปร่งใส', L, item).right, false, role + ' #' + (i + 1) + ' off-topic should fail');
+  });
+}
+
+// 13) ภารกิจตัวละครของตัวเอง: 6 อาชีพ x 3 ขั้น x 10 ข้อ (ถูก/ผิด) = 180 ข้อ และเกณฑ์ตรวจ T/F
+for (const role of auditRoles) {
+  assert(Array.isArray(L.missions[role]) && L.missions[role].length === 3, 'missions 3 steps for ' + role);
+  L.missions[role].forEach((m, mi) => {
+    assert(m.t && m.title && Array.isArray(m.items) && m.items.length === 10, role + ' M' + (mi + 1));
+    m.items.forEach((it, ii) => {
+      assert(typeof it.q === 'string' && it.q.length > 0 && typeof it.ans === 'boolean', role + ' M' + (mi + 1) + ' #' + (ii + 1));
+    });
+  });
+}
+const sampleItems = L.missions.police[0].items;
+const allRightAns = sampleItems.map((it) => it.ans);
+const tf10 = C.evalTfMission(allRightAns, sampleItems);
+assert.strictEqual(tf10.correct, 10); assert.strictEqual(tf10.pass, true); assert.strictEqual(tf10.verdict, 'pass');
+const tf7 = C.evalTfMission(allRightAns.map((v, i) => (i < 7 ? v : !v)), sampleItems);
+assert.strictEqual(tf7.correct, 7); assert.strictEqual(tf7.pass, true);
+const tf6 = C.evalTfMission(allRightAns.map((v, i) => (i < 6 ? v : !v)), sampleItems);
+assert.strictEqual(tf6.correct, 6); assert.strictEqual(tf6.pass, false); assert.strictEqual(tf6.verdict, 'fail');
+
+// 14) ช่องช่วยเหลือ (ภารกิจของคนอื่น): 6 อาชีพ x 10 สถานการณ์ = 60 ข้อ พร้อมแนวทางเกณฑ์และตรวจความสอดคล้อง
+for (const role of auditRoles) {
+  assert(Array.isArray(L.helpBank[role]) && L.helpBank[role].length === 10, 'helpBank 10 items for ' + role);
+  L.helpBank[role].forEach((item, i) => {
+    assert(item.t && item.title && item.q && item.ans && Array.isArray(item.keys) && item.keys.length === 3, 'help ' + role + ' #' + (i + 1));
+    assert(item.keys.every((g) => g.length > 0), 'help keys ' + role + ' #' + (i + 1));
+    assert.strictEqual(C.scoreExam(item.ans, item).score, 3, 'help ' + role + ' #' + (i + 1) + ' ans should score 3');
+    assert.strictEqual(C.evalHelp(item.ans, L, item).verdict, 'pass', 'help ' + role + ' #' + (i + 1) + ' ans should pass');
+    assert.strictEqual(C.evalHelp('รับเงินใต้โต๊ะและปกปิดไว้', L, item).verdict, 'corrupt', 'help ' + role + ' #' + (i + 1) + ' corrupt');
+    assert.strictEqual(C.evalHelp('วันนี้อากาศดีมากเลยและโปร่งใสดี', L, item).verdict, 'fail', 'help ' + role + ' #' + (i + 1) + ' off-topic');
   });
 }
 

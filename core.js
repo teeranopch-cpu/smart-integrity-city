@@ -12,7 +12,7 @@ function countBad(text, words) {
     let i = text.indexOf(w);
     while (i !== -1) {
       const before = text.slice(Math.max(0, i - 24), i);
-      if (!/(ไม่|ปฏิเสธ|ห้าม|แจ้ง|รายงาน|ต้าน|ป้องกัน|ปราศจาก|ขจัด|ลด|ไร้|ปลอด|แก้|ปัญหา|ตรวจสอบ|สอบสวน|เปิดโปง|ผลกระทบ|ลงโทษ|ก่อให้เกิด|กระทำผิด|Zero)/i.test(before)) n++;
+      if (!/(ไม่|ปฏิเสธ|ห้าม|แจ้ง|รายงาน|ต้าน|ป้องกัน|ปราศจาก|ขจัด|ลด|ไร้|ปลอด|แก้|ปัญหา|ตรวจสอบ|สอบสวน|เปิดโปง|แฉ|ดำเนินคดี|จับกุม|เอาผิด|ลบล้าง|บันทึก|หลักฐาน|ข้อหา|คดี|หากพบ|ผลกระทบ|ลงโทษ|ก่อให้เกิด|กระทำผิด|Zero)/i.test(before)) n++;
       i = text.indexOf(w, i + w.length);
     }
   }
@@ -104,17 +104,53 @@ function resolveEthics(room, lesson, player, trait, right) {
   return right ? 'ตอบถูก' : 'ตอบผิด';
 }
 
-// ตรวจคำตอบช่องตรวจสอบ: ถ้าตอบเชิงทุจริตถือว่าผิด, มิฉะนั้นตรวจจากกลุ่มคำสำคัญของโจทย์ (หรือ evalText)
+// ตรวจคำตอบช่องตรวจสอบ: ตรวจว่าข้อความสอดคล้องกับแนวคำตอบของโจทย์หรือไม่ (ไม่ให้ผ่านจากคำทั่วไปที่ไม่ตรงแนวคำตอบ)
 function evalAudit(text, lesson, qItem) {
   const t = (text || '').trim();
   const ev = evalText(t, lesson);
-  if (!t || ev.verdict === 'corrupt') return { right: false, ev, score: 0 };
-  if (qItem && Array.isArray(qItem.keys)) {
+  const total = (qItem && Array.isArray(qItem.keys)) ? qItem.keys.length : 0;
+  if (!t) return { right: false, aligned: false, ev, score: 0, hits: 0, total, matched: [], note: 'ไม่ได้พิมพ์คำตอบ' };
+  if (ev.verdict === 'corrupt') return { right: false, aligned: false, ev, score: 0, hits: 0, total, matched: [], note: 'ไม่สอดคล้องกับแนวคำตอบ (มีเนื้อหาเชิงทุจริต)' };
+  if (total > 0) {
     const sc = scoreExam(t, qItem);
-    const right = sc.hits >= 2 || (sc.hits >= 1 && t.length >= 12) || ev.verdict === 'pass';
-    return { right, ev, score: sc.score };
+    const need = Math.min(2, total);
+    const right = sc.hits >= need;
+    const matchedTxt = sc.matched.length ? ` · พบคำสำคัญ: ${sc.matched.join(', ')}` : '';
+    const note = right
+      ? `สอดคล้องกับแนวคำตอบ (ตรง ${sc.hits}/${total} ประเด็น${matchedTxt})`
+      : `ไม่สอดคล้องกับแนวคำตอบ (ตรง ${sc.hits}/${total} ประเด็น ต้องตรงอย่างน้อย ${need} ประเด็น${matchedTxt})`;
+    return { right, aligned: right, ev, score: sc.score, hits: sc.hits, total, matched: sc.matched, note };
   }
-  return { right: ev.verdict === 'pass', ev, score: ev.auditScore || 0 };
+  const right = ev.verdict === 'pass';
+  return { right, aligned: right, ev, score: ev.auditScore || 0, hits: ev.good, total: 0, matched: [], note: right ? 'สอดคล้องกับหลักสุจริต' : 'คำตอบยังไม่ชัดเจนหรือไม่ตรงประเด็น' };
+}
+
+// ตรวจคำตอบช่องช่วยเหลือ (ภารกิจของคนอื่น): อิงความสอดคล้องกับแนวทางเกณฑ์ของสถานการณ์นั้น
+function evalHelp(text, lesson, qItem) {
+  const t = (text || '').trim();
+  const ev = evalText(t, lesson);
+  if (ev.verdict === 'corrupt') return { verdict: 'corrupt', ev, score: 0, hits: 0, total: (qItem && qItem.keys) ? qItem.keys.length : 0, matched: [], note: 'คำตอบมีเนื้อหาเชิงทุจริต' };
+  if (qItem && Array.isArray(qItem.keys) && qItem.keys.length) {
+    const a = evalAudit(t, lesson, qItem);
+    return { verdict: a.right ? 'pass' : 'fail', ev, score: a.score, hits: a.hits, total: a.total, matched: a.matched, note: a.note };
+  }
+  return { verdict: ev.verdict, ev, score: ev.auditScore || 0, hits: ev.good, total: 0, matched: [], note: ev.verdict === 'pass' ? 'สอดคล้องกับหลักสุจริต' : 'คำตอบยังไม่ชัดเจน' };
+}
+
+// ตรวจภารกิจตัวละครแบบติ๊กถูก/ผิด 10 ข้อ (เกณฑ์ผ่าน 7/10 ข้อ)
+const TF_PASS_MIN = 7;
+function evalTfMission(answers, items, passMin = TF_PASS_MIN) {
+  const details = (items || []).map((it, i) => {
+    const pick = answers ? answers[i] : null;
+    const ok = pick === it.ans;
+    return { q: it.q, expected: it.ans, pick, ok };
+  });
+  const total = details.length;
+  const correct = details.filter((d) => d.ok).length;
+  const need = Math.min(passMin, total);
+  const pass = total > 0 && correct >= need;
+  const note = `ตอบถูก ${correct}/${total} ข้อ (${pass ? 'ผ่านความรู้ตามเกณฑ์ ≥ ' + need + '/' + total : 'ยังไม่ถึงเกณฑ์ ' + need + '/' + total + ' ข้อ'})`;
+  return { verdict: pass ? 'pass' : 'fail', correct, total, need, pass, details, note };
 }
 
 // ตรวจสอบ: โหมดใหม่ { right: true|false } (+10 ชีวิต/+10 เมือง หรือ -10/-10) และรองรับโหมดเดิม { escape, score, lowChoice }
@@ -168,9 +204,14 @@ function endGame(room, reason) {
 // ตรวจข้อสอบปลายเปิดเบื้องต้น: ดูว่าคำตอบตรงกับแนวคำตอบกี่ประเด็น (กลุ่มคำสำคัญ 3 กลุ่ม ตรงกลุ่มละ 1 คะแนน สูงสุด 3) ไม่พิจารณาความยาว
 function scoreExam(text, q) {
   const t = (text || '').trim().toLowerCase();
-  if (!t) return { score: 0, hits: 0 };
-  const hits = q.keys.filter((g) => g.some((w) => t.includes(w.toLowerCase()))).length;
-  return { score: Math.min(EXAM_MAX, hits), hits };
+  if (!t) return { score: 0, hits: 0, matched: [] };
+  const matched = [];
+  let hits = 0;
+  for (const g of (q.keys || [])) {
+    const w = g.find((x) => t.includes(x.toLowerCase()));
+    if (w) { hits++; matched.push(w); }
+  }
+  return { score: Math.min(EXAM_MAX, hits), hits, matched };
 }
 
 // ใช้ AI ภายนอกถ้ามี window.AI_EVALUATOR(text, lesson, kind, question) → {score: 0-3} มิฉะนั้นใช้ scoreExam
@@ -193,5 +234,5 @@ function totalScore(player, lesson) {
 const TRAITS_COUNT = 5;
 
 if (typeof module !== 'undefined') {
-  module.exports = { evalText, evalAudit, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
+  module.exports = { evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
 }
