@@ -143,10 +143,10 @@ function endGame(room, reason) {
   room.winner = reason === 'time' && room.players.length ? ranking(room)[0].id : null;
 }
 
-// ตรวจข้อสอบปลายเปิดเบื้องต้น: ตอบตรงกลุ่มคำสำคัญกลุ่มละ 1 คะแนน (สูงสุด 3) — พิมพ์สั้นกว่า 10 ตัวอักษรได้ 0
+// ตรวจข้อสอบปลายเปิดเบื้องต้น: ดูว่าคำตอบตรงกับแนวคำตอบกี่ประเด็น (กลุ่มคำสำคัญ 3 กลุ่ม ตรงกลุ่มละ 1 คะแนน สูงสุด 3) ไม่พิจารณาความยาว
 function scoreExam(text, q) {
   const t = (text || '').trim().toLowerCase();
-  if (t.length < 10) return { score: 0, hits: 0 };
+  if (!t) return { score: 0, hits: 0 };
   const hits = q.keys.filter((g) => g.some((w) => t.includes(w.toLowerCase()))).length;
   return { score: Math.min(EXAM_MAX, hits), hits };
 }

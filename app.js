@@ -128,6 +128,7 @@ function vLobby() {
 }
 
 const LEVELS = ['ปรับปรุง', 'พอใช้', 'ดี', 'ดีมาก'];
+const LEVEL_DESC = ['ไม่ตอบ ตอบไม่ตรงประเด็น หรือไม่สอดคล้องกับคุณลักษณะที่วัด', 'ตอบได้บางส่วน แต่ยังไม่ชัดเจนหรือขาดเหตุผล/แนวทางสำคัญ', 'ตอบตรงประเด็น มีแนวทางปฏิบัติหรือเหตุผลสอดคล้องกับคุณลักษณะที่วัด', 'ตอบตรงประเด็นมากที่สุด'];
 
 // หน้าทำข้อสอบปลายเปิดทีละข้อ ใช้ร่วมกันระหว่าง Pre-Test (k='pre') และ Post-Test (k='post')
 function examView(P, items, title, k) {
@@ -144,7 +145,7 @@ function examView(P, items, title, k) {
   if (P.phase === 'result') {
     const sc = P.scores[P.i], last = P.i + 1 >= n;
     return head + `<div class="card">${qBox}<div class="q"><b>คำตอบ:</b> ${esc(P.ans[P.i] || '') || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>
-      <div class="muted">คะแนนข้อนี้</div><div class="big">${sc.score} / ${EXAM_MAX}</div><div class="muted">ระดับ: ${LEVELS[sc.score]} · ประเมินเบื้องต้นโดยระบบ</div>
+      <div class="muted">คะแนนข้อนี้ (ความตรงกับแนวคำตอบ)</div><div class="big">${sc.score} / ${EXAM_MAX}</div><div class="muted"><b>ระดับ ${LEVELS[sc.score]}</b> — ${LEVEL_DESC[sc.score]}<br>ประเมินเบื้องต้นโดยระบบ</div>
       <p><button data-act="${A.after}">${last ? (k === 'pre' ? 'จบ Pre-Test' : 'จบ Post-Test') : 'ข้อถัดไป'}</button></p></div>`;
   }
   return head + `<div class="card">${qBox}

@@ -69,6 +69,10 @@ for (const set of ['pretest', 'posttest']) L[set].forEach((x, i) => assert.stric
 // ไม่ตอบ/ตอบสั้น/ตอบไม่ตรงประเด็น = 0
 assert.strictEqual(C.scoreExam('', L.pretest[0]).score, 0);
 assert.strictEqual(C.scoreExam('ไม่รู้', L.pretest[0]).score, 0);
+// คำตอบสั้นแต่ตรงแนวคำตอบ ต้องได้คะแนน (ไม่ตัดคะแนนเพราะความสั้น)
+assert(C.scoreExam('ส่งคืนเจ้าของ', L.pretest[6]).score >= 1);
+assert(C.scoreExam('ส่งคืนเจ้าของและแจ้งครู', L.pretest[6]).score >= 2);
+assert(C.scoreExam('ไม่ลอก', L.pretest[7]).score >= 1);
 assert.strictEqual(C.scoreExam('วันนี้อากาศดีมากเลยไปเที่ยวทะเลกัน', L.posttest[7]).score, 0);
 // ตอบได้บางส่วน = 1-2 (ไม่เต็ม)
 const part = C.scoreExam('ฉันจะส่งคืนเจ้าของกระเป๋าเงินทันที', L.pretest[6]).score; assert(part >= 1 && part < 3, 'บางส่วน ' + part);
