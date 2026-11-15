@@ -214,6 +214,51 @@ function scoreExam(text, q) {
   return { score: Math.min(EXAM_MAX, hits), hits, matched };
 }
 
+
+// ===== ชั้นที่ 1: ความใกล้เคียงกับแนวคำตอบ (เป็น %) ทำงานในเบราว์เซอร์ ไม่ใช้ AI ไม่คิดความยาว =====
+const STOP = ['และ','หรือ','ที่','ซึ่ง','ของ','ใน','ให้','ได้','เป็น','มี','จะ','ก็','แต่','การ','ความ','ว่า','กับ','แก่','โดย','เพื่อ','ไป','มา','นี้','นั้น','แล้ว','อยู่','คือ','ต้อง','ควร','เรา','ผม','ฉัน','หนู','จาก','ถึง','ด้วย','เช่น','ทุก','อย่าง','ทำ','ๆ','นะ','ครับ','ค่ะ','คะ','ไว้','เอง','ก่อน','หลัง','ยัง','ไม่'];
+const _seg = (typeof Intl !== 'undefined' && Intl.Segmenter) ? new Intl.Segmenter('th', { granularity: 'word' }) : null;
+function normTh(s) { return (s || '').toLowerCase().replace(/[\s\u200b.,!?;:"'()\[\]\-_/\\ๆฯ]+/g, ''); }
+function tokens(text) {
+  const t = (text || '').toLowerCase();
+  let ws = [];
+  if (_seg) for (const x of _seg.segment(t)) { if (x.isWordLike) ws.push(x.segment); }
+  else ws = t.split(/[^\u0E00-\u0E7Fa-z0-9]+/).filter(Boolean);
+  return ws.filter((w) => w.length >= 2 && !STOP.includes(w));
+}
+function bigrams(s) { const r = new Set(); for (let i = 0; i < s.length - 1; i++) r.add(s.slice(i, i + 2)); return r; }
+function dice(a, b) { const A = bigrams(a), B = bigrams(b); if (!A.size || !B.size) return 0; let n = 0; A.forEach((x) => { if (B.has(x)) n++; }); return (2 * n) / (A.size + B.size); }
+// สัดส่วน (0-1) ของสาระในแนวคำตอบที่พบในคำตอบผู้เรียน (ถ่วงน้ำหนักตามความยาวคำ)
+function coverage(answer, ref) {
+  const rt = tokens(ref), at = tokens(answer), flat = normTh(answer);
+  if (!rt.length || !flat) return 0;
+  let got = 0, all = 0;
+  for (const w of rt) {
+    const wt = Math.min(w.length, 8); all += wt;
+    if (flat.includes(w)) { got += wt; continue; }
+    if (w.length >= 4) { let best = 0; for (const a of at) if (a.length >= 3) best = Math.max(best, dice(w, a)); if (best >= 0.7) got += wt * best; }
+  }
+  return got / all;
+}
+// วลีที่บ่งชี้ว่าตอบกลับด้านกับคุณธรรม (ถ้าแนวคำตอบไม่มีวลีนั้น) → ให้ 0 เพื่อกันคำตอบที่ใช้คำเดียวกันแต่ความหมายตรงข้าม
+const REVERSE_CUES = ['ไม่ต้องสนใจ','ไม่ต้องบอก','ไม่ต้องตรวจ','ไม่ต้องช่วย','ไม่ต้องบริจาค','ไม่ต้องเก็บ','ไม่ต้องตรงเวลา','ไม่จำเป็นต้อง','ไม่สนใจ','ช่างเขา','ช่างมัน','ไม่ใช่เรื่องของเรา','ไม่ใช่หน้าที่','ไม่ใช่ธุระ','ปกปิด','เก็บไว้ใช้เอง','ไม่บอกใคร','ไม่มีใครเห็น','ไม่เป็นไร','ปล่อยไว้','คนอื่นทำ'];
+function reversed(text, q) { const t = normTh(text), r = normTh([q.ans].concat(q.alts || []).join('')); return REVERSE_CUES.some((c) => t.includes(c) && !r.includes(c)); }
+const SIM_DEFAULT = { t1: 0.15, t2: 0.25, t3: 0.35 };
+function similarity(text, q) {
+  const refs = [q.ans].concat(q.alts || []).filter(Boolean);
+  return Math.max(0, ...refs.map((r) => coverage(text, r)));
+}
+function simScore(sim, th) { th = th || SIM_DEFAULT; return sim >= th.t3 ? 3 : sim >= th.t2 ? 2 : sim >= th.t1 ? 1 : 0; }
+
+// ชั้นที่ 1+2 รวมกัน: ใช้คะแนนที่สูงกว่าระหว่าง 'ความใกล้เคียง %' กับ 'กลุ่มคำสำคัญ' ยกเว้นตอบกลับด้านให้ 0
+function scoreExam2(text, q, th) {
+  const t = (text || '').trim();
+  if (!t) return { score: 0, hits: 0, sim: 0 };
+  const k = scoreExam(t, q), sim = similarity(t, q);
+  if (reversed(t, q)) return { score: 0, hits: k.hits, sim, reversed: true };
+  return { score: Math.max(k.score, simScore(sim, th || SIM_DEFAULT)), hits: k.hits, sim };
+}
+
 // ใช้ AI ภายนอกถ้ามี window.AI_EVALUATOR(text, lesson, kind, question) → {score: 0-3} มิฉะนั้นใช้ scoreExam
 async function evaluateExam(text, lesson, kind, q) {
   if (typeof window !== 'undefined' && typeof window.AI_EVALUATOR === 'function') {
@@ -222,7 +267,7 @@ async function evaluateExam(text, lesson, kind, q) {
       if (r && Number.isFinite(r.score)) return { score: clamp(Math.round(r.score), 0, EXAM_MAX) };
     } catch (e) { /* ใช้ตัวสำรอง */ }
   }
-  return scoreExam(text, q);
+  return scoreExam2(text, q, lesson && lesson.exam);
 }
 
 function totalScore(player, lesson) {
@@ -234,5 +279,5 @@ function totalScore(player, lesson) {
 const TRAITS_COUNT = 5;
 
 if (typeof module !== 'undefined') {
-  module.exports = { evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
+  module.exports = { scoreExam2, reversed, similarity, coverage, simScore, tokens, SIM_DEFAULT, evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
 }

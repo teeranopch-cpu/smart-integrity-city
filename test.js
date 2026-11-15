@@ -133,4 +133,15 @@ for (const role of auditRoles) {
   });
 }
 
+// 13) ชั้นที่ 1: ความใกล้เคียง %
+for (const set of ['pretest', 'posttest']) L[set].forEach((x, i) => assert(C.similarity(x.ans, x) > 0.95, 'แนวคำตอบควรใกล้เคียงตัวเอง ' + set + i));
+assert.strictEqual(C.scoreExam2('', L.pretest[0]).score, 0);
+assert.strictEqual(C.scoreExam2('ไม่ต้องบริจาคหรือไปช่วยอะไร', L.posttest[9]).score, 0, 'ตอบกลับด้านต้องได้ 0');
+// คำตอบอื่นที่ครูเพิ่ม ต้องทำให้คำตอบนั้นได้คะแนนใกล้เคียงสูงขึ้น
+const q9 = JSON.parse(JSON.stringify(L.pretest[6])); const alt = 'เอากระเป๋าส่งสำนักงานโรงเรียนเพื่อประกาศ';
+const before = C.similarity(alt, q9); q9.alts = [alt]; assert(C.similarity(alt, q9) > before);
+assert(C.scoreExam2(L.pretest[0].ans, L.pretest[0]).score === 3);
+// เกณฑ์ที่ครูปรับ
+assert.strictEqual(C.simScore(0.5, { t1: 0.1, t2: 0.6, t3: 0.9 }), 1);
+
 console.log('ทุกการทดสอบผ่าน');
