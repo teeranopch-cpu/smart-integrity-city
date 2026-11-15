@@ -52,10 +52,27 @@ assert.strictEqual(C.evalText('ฉันปฏิเสธและไม่ร�
 assert.strictEqual(C.evalText('ฉันจะรับเงินใต้โต๊ะและปกปิดเรื่องนี้', L).verdict, 'corrupt');
 assert.strictEqual(C.evalText('ไม่รู้', L).verdict, 'fail');
 
-// 10) เกียรติบัตร
-const q = C.newPlayer('q', 'gov'); q.post = { score: 5 };
-['think', 'discipline', 'honesty', 'sufficiency'].forEach((t) => (q.evidence[t] = { status: 'approved' }));
-assert.strictEqual(C.totalScore(q, L).pass, true);
+// 10) เกียรติบัตร: Post-Test (เต็ม 30) + ภารกิจชีวิตจริงที่อนุมัติ (เต็ม 5) ผ่านที่ 21 จาก 35
+const q = C.newPlayer('q', 'gov'); q.post = { score: 18 };
+['think', 'discipline', 'honesty'].forEach((t) => (q.evidence[t] = { status: 'approved' }));
+assert.strictEqual(C.totalScore(q, L).total, 21); assert.strictEqual(C.totalScore(q, L).max, 35); assert.strictEqual(C.totalScore(q, L).pass, true);
 q.evidence.honesty.status = 'rejected'; assert.strictEqual(C.totalScore(q, L).pass, false);
+
+// 11) ข้อสอบปลายเปิด: ครบ 10 ข้อ หมวดละ 2 ข้อ แต่ละข้อมีกลุ่มคำสำคัญ 3 กลุ่ม
+for (const set of ['pretest', 'posttest']) {
+  assert.strictEqual(L[set].length, 10);
+  for (const tr of ['think', 'discipline', 'honesty', 'sufficiency', 'public']) assert.strictEqual(L[set].filter((x) => x.trait === tr).length, 2, set + ' ' + tr);
+  L[set].forEach((x, i) => { assert.strictEqual(x.keys.length, 3, set + i); assert(x.keys.every((g) => g.length > 0)); });
+}
+// แนวคำตอบของครูต้องได้เต็ม 3 ทุกข้อ (ตรวจว่ากลุ่มคำสำคัญครอบคลุมแนวคำตอบ)
+for (const set of ['pretest', 'posttest']) L[set].forEach((x, i) => assert.strictEqual(C.scoreExam(x.ans, x).score, 3, set + ' ข้อ ' + (i + 1) + ' แนวคำตอบควรได้ 3'));
+// ไม่ตอบ/ตอบสั้น/ตอบไม่ตรงประเด็น = 0
+assert.strictEqual(C.scoreExam('', L.pretest[0]).score, 0);
+assert.strictEqual(C.scoreExam('ไม่รู้', L.pretest[0]).score, 0);
+assert.strictEqual(C.scoreExam('วันนี้อากาศดีมากเลยไปเที่ยวทะเลกัน', L.posttest[7]).score, 0);
+// ตอบได้บางส่วน = 1-2 (ไม่เต็ม)
+const part = C.scoreExam('ฉันจะส่งคืนเจ้าของกระเป๋าเงินทันที', L.pretest[6]).score; assert(part >= 1 && part < 3, 'บางส่วน ' + part);
+// เพดานคะแนน
+assert(L.posttest.every((x) => C.scoreExam(x.ans + x.ans, x).score <= 3));
 
 console.log('ทุกการทดสอบผ่าน');

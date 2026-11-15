@@ -7,6 +7,11 @@ const loadDB = () => {
     const d = JSON.parse(localStorage.getItem(KEY)) || initDB();
     if (!Array.isArray(d.users)) d.users = [];
     if (!d.session || typeof d.session !== 'object') d.session = null; // ข้อมูลเวอร์ชันเก่า
+    (d.lessons || []).forEach((l) => { // ข้อสอบรูปแบบเก่า (ปรนัย 5 ข้อ) → ข้อสอบปลายเปิดชุดใหม่
+      if (!l.pretest || !l.posttest || !l.posttest[0] || !l.posttest[0].keys || !l.pretest[0].keys) {
+        l.pretest = JSON.parse(JSON.stringify(DEFAULT_LESSON.pretest)); l.posttest = JSON.parse(JSON.stringify(DEFAULT_LESSON.posttest)); l.passScore = DEFAULT_LESSON.passScore;
+      }
+    });
     return d;
   } catch { return initDB(); }
 };
@@ -50,12 +55,12 @@ function fileToDataURL(file, maxW = 800) {
 }
 
 // ===== แผนภูมิเรดาร์ (SVG) =====
-function radar(series) {
+function radar(series, max = TRAIT_MAX) {
   const cx = 150, cy = 140, R = 100, n = TRAITS.length;
-  const pt = (i, v) => { const a = -Math.PI / 2 + (2 * Math.PI * i) / n; return [cx + (R * v / 10) * Math.cos(a), cy + (R * v / 10) * Math.sin(a)]; };
+  const pt = (i, v) => { const a = -Math.PI / 2 + (2 * Math.PI * i) / n; return [cx + (R * v / max) * Math.cos(a), cy + (R * v / max) * Math.sin(a)]; };
   let g = '';
-  for (const lv of [2, 4, 6, 8, 10]) g += `<polygon points="${TRAITS.map((_, i) => pt(i, lv).join(',')).join(' ')}" fill="none" stroke="currentColor" opacity=".2"/>`;
-  TRAITS.forEach((t, i) => { const [x, y] = pt(i, 10), [lx, ly] = pt(i, 11.8); g += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="currentColor" opacity=".2"/><text x="${lx}" y="${ly}" font-size="13" text-anchor="middle" fill="currentColor">${t.name}</text>`; });
+  for (let lv = 1; lv <= max; lv++) g += `<polygon points="${TRAITS.map((_, i) => pt(i, lv).join(',')).join(' ')}" fill="none" stroke="currentColor" opacity=".2"/>`;
+  TRAITS.forEach((t, i) => { const [x, y] = pt(i, max), [lx, ly] = pt(i, max * 1.18); g += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="currentColor" opacity=".2"/><text x="${lx}" y="${ly}" font-size="13" text-anchor="middle" fill="currentColor">${t.name}</text>`; });
   for (const s of series) g += `<polygon points="${s.vals.map((v, i) => pt(i, v).join(',')).join(' ')}" fill="${s.color}" fill-opacity=".25" stroke="${s.color}" stroke-width="2"/>`;
   const legend = series.map((s, i) => `<text x="10" y="${270 + i * 16}" font-size="12" fill="${s.color}">■ ${s.label}</text>`).join('');
   return `<svg viewBox="0 0 300 310" width="100%" style="max-width:340px">${g}${legend}</svg>`;
@@ -112,7 +117,7 @@ function vLobby() {
     <table><tr><th>ผู้เล่น</th><th>อาชีพ</th><th>ชื่อ</th><th>Pre-Test</th></tr>
     ${ROLES.map((ro, i) => { const p = byRole(ro.id); return `<tr><td>คนที่ ${i + 1}</td><td>${ro.icon} ${ro.name}</td>
       <td><input data-reg="${ro.id}" value="${esc(p ? p.name : '')}" placeholder="ชื่อผู้เล่น"></td>
-      <td>${p ? (p.pre ? '<span class="good">เสร็จแล้ว</span> ' : '<span class="bad">ยังไม่ทำ</span> ') + `<button class="alt" data-act="startPre" data-pid="${p.id}">${p.pre ? 'ทำใหม่' : 'ทำ Pre-Test'}</button>` : '<span class="muted">บันทึกชื่อก่อน</span>'}</td></tr>`; }).join('')}</table>
+      <td>${p ? (p.pre ? `<span class="good">เสร็จแล้ว (${Object.values(p.pre).reduce((x, y) => x + y, 0)}/${L.pretest.length * EXAM_MAX})</span> ` : '<span class="bad">ยังไม่ทำ</span> ') + `<button class="alt" data-act="startPre" data-pid="${p.id}">${p.pre ? 'ทำใหม่' : 'ทำ Pre-Test'}</button>` : '<span class="muted">บันทึกชื่อก่อน</span>'}</td></tr>`; }).join('')}</table>
     <p><button data-act="saveRoster">บันทึกรายชื่อ</button></p></div>
   <div class="card"><h3>ตั้งค่าเกม</h3>
     <div class="grid g2"><div><label>เวลาเล่น (นาที, ขั้นต่ำ 20)</label><input id="sDur" type="number" min="20" value="${r.durationMin}"></div>
@@ -122,28 +127,36 @@ function vLobby() {
     ${ready ? '' : '<p class="muted">เริ่มเกมได้เมื่อมีผู้เล่นอย่างน้อย 2 คน และทุกคนที่ลงทะเบียนทำ Pre-Test แล้ว</p>'}</div>`;
 }
 
-function vPretest() {
-  const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pre.pid), P = ui.pre, n = L.pretest.length, q = L.pretest[P.i];
-  const done = P.phase === 'result' ? P.i + 1 : P.i;
-  const head = `<div class="card"><h2>Pre-Test: ${esc(p.name)}</h2><div class="muted">ข้อ ${P.i + 1} จาก ${n}</div><div class="prog"><i style="width:${(done / n) * 100}%"></i></div></div>`;
-  const qBox = `<div class="q"><b>ข้อ ${P.i + 1} (${traitName(q.trait)})</b><br>${esc(q.q)}</div>`;
+const LEVELS = ['ปรับปรุง', 'พอใช้', 'ดี', 'ดีมาก'];
+
+// หน้าทำข้อสอบปลายเปิดทีละข้อ ใช้ร่วมกันระหว่าง Pre-Test (k='pre') และ Post-Test (k='post')
+function examView(P, items, title, k) {
+  const n = items.length, q = items[P.i], done = P.phase === 'result' ? P.i + 1 : P.i;
+  const A = k === 'pre' ? { begin: 'beginQ', next: 'nextQ', after: 'preNext' } : { begin: 'beginPost', next: 'nextPost', after: 'postNext' };
+  const cancel = k === 'pre' ? `<button class="alt" data-act="enter" data-code="${room().code}">ยกเลิก</button>` : '<button class="alt" data-act="postCancel">ยกเลิก</button>';
+  const head = `<div class="card"><h2>${esc(title)}</h2><div class="muted">ข้อ ${P.i + 1} จาก ${n} · ข้อละ ${EXAM_MAX} คะแนน</div><div class="prog"><i style="width:${(done / n) * 100}%"></i></div></div>`;
+  const qBox = `<div class="q big"><b>ข้อ ${P.i + 1} (${traitName(q.trait)})</b><br>${esc(q.q)}</div>`;
   if (P.phase === 'read') {
     return head + `<div class="card">${qBox}
       <p class="muted">ให้อ่านโจทย์ให้เข้าใจก่อน เมื่อพร้อมแล้วกด "เริ่มทำ" ระบบจะเริ่มนับเวลา 30 วินาที</p>
-      <p class="row"><button data-act="beginQ">เริ่มทำ</button><button class="alt" data-act="enter" data-code="${r.code}">ยกเลิก</button></p></div>`;
+      <p class="row"><button data-act="${A.begin}">เริ่มทำ</button>${cancel}</p></div>`;
   }
   if (P.phase === 'result') {
     const sc = P.scores[P.i], last = P.i + 1 >= n;
-    const label = { pass: 'ตอบเหมาะสม', fail: 'ยังไม่ชัดเจน', corrupt: 'ตอบเชิงทุจริต' }[sc.verdict] || '';
     return head + `<div class="card">${qBox}<div class="q"><b>คำตอบ:</b> ${esc(P.ans[P.i] || '') || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>
-      <div class="muted">คะแนนข้อนี้</div><div class="big">${sc.score} / 10</div><div class="muted">${label} · ประเมินเบื้องต้นโดยระบบ</div>
-      <p><button data-act="preNext">${last ? 'จบ Pre-Test' : 'ข้อถัดไป'}</button></p></div>`;
+      <div class="muted">คะแนนข้อนี้</div><div class="big">${sc.score} / ${EXAM_MAX}</div><div class="muted">ระดับ: ${LEVELS[sc.score]} · ประเมินเบื้องต้นโดยระบบ</div>
+      <p><button data-act="${A.after}">${last ? (k === 'pre' ? 'จบ Pre-Test' : 'จบ Post-Test') : 'ข้อถัดไป'}</button></p></div>`;
   }
   return head + `<div class="card">${qBox}
     <div class="row"><span class="muted">เหลือเวลา</span><span class="big" id="ptimer">00:30</span></div>
-    <textarea id="preText" data-bind="preAns" data-i="${P.i}" placeholder="พิมพ์คำตอบ...">${esc(P.ans[P.i] || '')}</textarea>
-    <p class="row"><button data-act="nextQ">ส่งคำตอบข้อนี้</button></p>
+    <textarea id="examText" data-bind="examAns" data-k="${k}" data-i="${P.i}" placeholder="พิมพ์คำตอบ...">${esc(P.ans[P.i] || '')}</textarea>
+    <p class="row"><button data-act="${A.next}">ส่งคำตอบข้อนี้</button></p>
     <p class="muted">หมดเวลาแล้วระบบจะส่งคำตอบที่พิมพ์ไว้อัตโนมัติ และแสดงคะแนนข้อนี้</p></div>`;
+}
+
+function vPretest() {
+  const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pre.pid);
+  return examView(ui.pre, L.pretest, 'Pre-Test: ' + p.name, 'pre');
 }
 
 function barCity(r) { const pct = Math.min(100, (r.city / r.cityStart) * 100); return `<div class="bar"><i style="width:${pct}%"></i></div>`; }
@@ -272,6 +285,7 @@ function vJoinPost() {
 function vPost() {
   const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pid);
   const deadline = r.endedAt + 3 * 864e5, over = Date.now() > deadline;
+  if (ui.post) return examView(ui.post, L.posttest, 'Post-Test: ' + p.name, 'post');
   const tabs = [['mission', 'ภารกิจชีวิตจริง'], ['post', 'Post-Test'], ['cert', 'เกียรติบัตร']];
   let body = '';
   if (ui.tab === 'mission') {
@@ -280,12 +294,21 @@ function vPost() {
         ${over && !e ? '' : e && e.status !== 'rejected' ? '' : `<label>อัปโหลดภาพ</label><input type="file" accept="image/*" data-ev="${t.id}"><label>คำอธิบายสิ่งที่ทำ</label><textarea data-evd="${t.id}"></textarea><p><button data-act="sendEv" data-t="${t.id}">ส่งหลักฐาน</button></p>`}</div>`; }).join('');
   }
   if (ui.tab === 'post') {
-    body = p.post ? `<div class="card"><h3>ผลสอบ: ${p.post.score}/5</h3></div>` :
-      L.posttest.map((q, i) => `<div class="card"><b>${i + 1}. ${esc(q.q)}</b>${q.choices.map((c, j) => `<label style="color:var(--ink)"><input type="radio" style="width:auto" name="q${i}" value="${j}"> ${esc(c)}</label>`).join('')}</div>`).join('') + '<p><button data-act="sendPost">ส่งข้อสอบ</button></p>';
+    const maxPost = L.posttest.length * EXAM_MAX;
+    if (!p.post) {
+      body = `<div class="card"><h3>แบบทดสอบหลังเรียน (Post-Test)</h3><p>ข้อสอบปลายเปิด ${L.posttest.length} ข้อ ข้อละ ${EXAM_MAX} คะแนน (เต็ม ${maxPost}) แสดงทีละข้อ อ่านโจทย์แล้วกด "เริ่มทำ" มีเวลา 30 วินาทีต่อข้อ และจะเห็นคะแนนทุกข้อทันที</p><button data-act="startPost">เริ่ม Post-Test</button></div>`;
+    } else {
+      const tmax = (id) => L.posttest.filter((q) => q.trait === id).length * EXAM_MAX, pre = p.pre || {}, bt = p.post.byTrait || {};
+      const preTot = TRAITS.reduce((x, t) => x + (pre[t.id] || 0), 0), diff = (a, b) => (b - a > 0 ? '+' : '') + (b - a);
+      body = `<div class="card"><h3>ผล Post-Test</h3><div class="big">${p.post.score} / ${maxPost}</div>
+        <div class="scroll"><table><tr><th>คุณลักษณะ</th><th>Pre-Test</th><th>Post-Test</th><th>เปลี่ยนแปลง</th></tr>
+        ${TRAITS.map((t) => `<tr><td>${t.name}</td><td>${p.pre ? (pre[t.id] ?? 0) + '/' + tmax(t.id) : '-'}</td><td>${bt[t.id] ?? 0}/${tmax(t.id)}</td><td>${p.pre ? diff(pre[t.id] ?? 0, bt[t.id] ?? 0) : '-'}</td></tr>`).join('')}
+        <tr><td><b>รวม</b></td><td>${p.pre ? preTot + '/' + maxPost : '-'}</td><td><b>${p.post.score}/${maxPost}</b></td><td>${p.pre ? diff(preTot, p.post.score) : '-'}</td></tr></table></div></div>`;
+    }
   }
   if (ui.tab === 'cert') {
     const s = totalScore(p, L);
-    body = `<p>คะแนน: Post-Test ${s.post}/5 + ภารกิจชีวิตจริงที่ผ่าน ${s.ev}/5 = <b>${s.total}/10</b> (เกณฑ์ผ่าน ${L.passScore})</p>` + (s.pass
+    body = `<p>คะแนน: Post-Test ${s.post}/${L.posttest.length * EXAM_MAX} + ภารกิจชีวิตจริงที่ผ่าน ${s.ev}/${TRAITS.length} = <b>${s.total}/${s.max}</b> (เกณฑ์ผ่าน ${L.passScore})</p>` + (s.pass
       ? `<div class="cert"><div>เกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า</div><div class="nm">${esc(p.name)}</div><h1>ผ่านการอบรม Smart Integrity City</h1><div>เสริมสร้างคุณลักษณะ คิด วินัย ซื่อสัตย์ พอเพียง จิตสาธารณะ</div><p>ห้อง ${r.code} · ${new Date().toLocaleDateString('th-TH')}</p></div><p class="noprint"><button data-act="print">พิมพ์ / บันทึกเป็น PDF</button></p>`
       : '<p class="bad">ยังไม่ผ่านเกณฑ์ — ต้องทำ Post-Test และให้ครูตรวจภารกิจชีวิตจริงให้ครบก่อน</p>');
   }
@@ -307,7 +330,7 @@ function vTeacher() {
   }
   if (ui.tTab === 'points') {
     body += `<table><tr><th>เหตุการณ์</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ดัชนีเมือง</th></tr>${Object.keys(POINT_LABELS).map((k) => `<tr><td>${POINT_LABELS[k]}</td>${[0, 1, 2].map((i) => `<td><input type="number" data-pt="${k}" data-i="${i}" value="${L.points[k][i]}"></td>`).join('')}</tr>`).join('')}</table>
-      <label>เกณฑ์ผ่านเกียรติบัตร (เต็ม 10)</label><input type="number" id="passScore" min="1" max="10" value="${L.passScore}"><p><button data-act="savePoints">บันทึกตารางแต้ม</button></p>`;
+      <label>เกณฑ์ผ่านเกียรติบัตร (เต็ม ${L.posttest.length * EXAM_MAX + TRAITS.length}: Post-Test ${L.posttest.length * EXAM_MAX} + ภารกิจชีวิตจริง ${TRAITS.length})</label><input type="number" id="passScore" min="1" max="${L.posttest.length * EXAM_MAX + TRAITS.length}" value="${L.passScore}"><p><button data-act="savePoints">บันทึกตารางแต้ม</button></p>`;
   }
   if (ui.tTab === 'review') {
     body += mine.length ? mine.map((r) => `<div class="card"><b>ห้อง ${r.code}</b>${r.players.map((p) => Object.entries(p.evidence).map(([t, e]) => `<div class="row" style="margin-top:8px"><img class="ev" src="${e.img}" alt=""><div><b>${esc(p.name)}</b> · ${traitName(t)}<br>${esc(e.desc)}<br><span class="pill">${e.status}</span> <button data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="approved">ผ่าน</button> <button class="alt" data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="rejected">ไม่ผ่าน</button></div></div>`).join('')).join('') || '<p class="muted">ยังไม่มีหลักฐาน</p>'}</div>`).join('') : '<p class="muted">ยังไม่มีห้อง</p>';
@@ -335,10 +358,11 @@ function tick() {
     if (left <= 0) { endGame(r, 'time'); save(); go('end'); return; }
     if (g) g.textContent = fmtT(left);
   }
-  if (ui.view === 'pretest' && ui.pre && ui.pre.phase === 'answer' && !ui.pre.busy) {
-    const left = PRE_MS - (Date.now() - ui.pre.startedAt), pt = $('#ptimer');
+  const P = ui.view === 'pretest' ? ui.pre : ui.view === 'post' ? ui.post : null;
+  if (P && P.phase === 'answer' && !P.busy) {
+    const left = PRE_MS - (Date.now() - P.startedAt), pt = $('#ptimer');
     if (pt) { pt.textContent = fmtT(Math.max(0, left) + 999); pt.className = left <= 10000 ? 'big bad' : 'big'; }
-    if (left <= 0) { H.nextQ(); return; }
+    if (left <= 0) { if (ui.view === 'pretest') H.nextQ(); else H.nextPost(); return; }
   }
   const a = ui.act;
   if (ui.view === 'game' && a && a.timed && a.stage === 'answer' && !a.ev && !a.busy) {
@@ -357,6 +381,14 @@ function enterRoom(code) {
   go(r.status === 'lobby' ? 'lobby' : r.status === 'playing' ? 'game' : 'end');
 }
 function traitGrade(r, t) { if (r.verdict === 'corrupt') return 'bad'; if (r.verdict === 'pass') return r.good >= 2 ? 'good' : 'ok'; return t.trim().length >= 15 ? 'ok' : 'bad'; }
+
+function examBegin(P) { P.phase = 'answer'; P.startedAt = Date.now(); go(ui.view); const t = $('#examText'); if (t && t.focus) t.focus(); }
+async function examSubmit(P, items, kind) { // ส่งคำตอบข้อนี้ → ประเมิน → แสดงคะแนนข้อนี้
+  if (!P || P.busy || P.phase !== 'answer') return; P.busy = true;
+  const t = $('#examText'); if (t && typeof t.value === 'string' && t.value) P.ans[P.i] = t.value;
+  const res = await evaluateExam(P.ans[P.i] || '', lessonOf(room()), kind, items[P.i]);
+  P.scores[P.i] = { score: res.score }; P.phase = 'result'; P.busy = false; render();
+}
 
 function startSetup(kind) {
   const r = room();
@@ -388,7 +420,7 @@ const H = {
   findRoom: () => { const c = $('#findCode').value.trim().toUpperCase(); if (!DB.rooms[c]) return toast('ไม่พบห้องนี้'); go('joinPost', { code: c, pid: null }); },
   joinPostNow: () => go('joinPost'),
   joinFind: () => { const c = $('#jCode').value.trim().toUpperCase(); if (!DB.rooms[c]) return toast('ไม่พบห้อง'); go('joinPost', { code: c }); },
-  joinGo: () => { if (!ui.pid) return toast('เลือกชื่อก่อน'); go('post', { tab: 'mission' }); },
+  joinGo: () => { if (!ui.pid) return toast('เลือกชื่อก่อน'); go('post', { tab: 'mission', post: null }); },
   authMode: (b) => go('login', { authMode: b.dataset.m }),
   async doRegister() {
     const name = $('#rName').value.trim(), email = $('#lEmail').value.trim().toLowerCase(), pw = $('#lCode').value;
@@ -435,24 +467,32 @@ const H = {
     r.durationMin = d; r.cityStart = c; r.city = c; save(); toast('บันทึกแล้ว'); render();
   },
   startPre: (b) => go('pretest', { pre: { pid: b.dataset.pid, ans: [], scores: [], i: 0, phase: 'read', busy: false } }),
-  beginQ: () => { ui.pre.phase = 'answer'; ui.pre.startedAt = Date.now(); render(); const t = $('#preText'); if (t && t.focus) t.focus(); },
-  async nextQ() { // ส่งคำตอบข้อนี้ → ประเมิน → แสดงคะแนนข้อนี้
-    const P = ui.pre; if (!P || P.busy || P.phase !== 'answer') return; P.busy = true;
-    const t = $('#preText'); if (t && typeof t.value === 'string' && t.value) P.ans[P.i] = t.value;
-    const res = await evaluate(P.ans[P.i] || '', lessonOf(room()), 'pretest');
-    P.scores[P.i] = { score: preScoreFromVerdict(res), verdict: res.verdict };
-    P.phase = 'result'; P.busy = false; render();
-  },
+  beginQ: () => examBegin(ui.pre),
+  nextQ: () => examSubmit(ui.pre, lessonOf(room()).pretest, 'pretest'),
   async preNext() {
     const P = ui.pre; if (!P || P.phase !== 'result') return;
-    if (P.i + 1 < lessonOf(room()).pretest.length) { P.i += 1; P.phase = 'read'; return render(); }
+    if (P.i + 1 < lessonOf(room()).pretest.length) { P.i += 1; P.phase = 'read'; return go('pretest'); }
     await H.finishPre();
   },
   async finishPre() {
     const r = room(), L = lessonOf(r), P = ui.pre, p = r.players.find((x) => x.id === P.pid), sum = {}, cnt = {};
     L.pretest.forEach((q, i) => { sum[q.trait] = (sum[q.trait] || 0) + (P.scores[i] ? P.scores[i].score : 0); cnt[q.trait] = (cnt[q.trait] || 0) + 1; });
-    p.pre = {}; TRAITS.forEach((t) => { p.pre[t.id] = cnt[t.id] ? Math.round(sum[t.id] / cnt[t.id]) : 5; });
+    p.pre = {}; TRAITS.forEach((t) => { p.pre[t.id] = cnt[t.id] ? sum[t.id] : TRAIT_MAX / 2; }); // เต็ม 6 ต่อคุณลักษณะ
+    p.preScores = P.scores.map((x) => x.score);
     p.traitGame = {}; save(); ui.pre = null; toast('บันทึกผล Pre-Test แล้ว'); go('lobby');
+  },
+  startPost: () => go('post', { post: { ans: [], scores: [], i: 0, phase: 'read', busy: false } }),
+  beginPost: () => examBegin(ui.post),
+  nextPost: () => examSubmit(ui.post, lessonOf(room()).posttest, 'posttest'),
+  postCancel: () => go('post', { post: null }),
+  async postNext() {
+    const P = ui.post; if (!P || P.phase !== 'result') return;
+    const r = room(), L = lessonOf(r);
+    if (P.i + 1 < L.posttest.length) { P.i += 1; P.phase = 'read'; return go('post'); }
+    const p = r.players.find((x) => x.id === ui.pid), byTrait = {}; let total = 0;
+    L.posttest.forEach((q, i) => { const v = P.scores[i] ? P.scores[i].score : 0; byTrait[q.trait] = (byTrait[q.trait] || 0) + v; total += v; });
+    p.post = { score: total, byTrait, scores: P.scores.map((x) => x.score), at: Date.now() };
+    save(); toast('บันทึกผล Post-Test แล้ว'); go('post', { post: null, tab: 'post' });
   },
   startGame: () => {
     const r = room(); r.status = 'playing'; r.startedAt = Date.now(); r.endsAt = r.startedAt + r.durationMin * 60000; r.city = r.cityStart;
@@ -506,11 +546,6 @@ const H = {
     const img = await fileToDataURL(f), ai = (await evaluate(desc, L, 'evidence')).verdict;
     p.evidence[t] = { img, desc, ai, status: 'pending', at: Date.now() }; save(); toast('ส่งหลักฐานแล้ว รอครูตรวจ'); render();
   },
-  sendPost: () => {
-    const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pid); let s = 0;
-    for (let i = 0; i < L.posttest.length; i++) { const c = document.querySelector(`input[name=q${i}]:checked`); if (!c) return toast('ตอบให้ครบทุกข้อ'); if (+c.value === L.posttest[i].answer) s++; }
-    p.post = { score: s, at: Date.now() }; save(); render();
-  },
   print: () => window.print(),
   tTab: (b) => go('teacher', { tTab: b.dataset.t }),
   saveLesson: () => {
@@ -522,13 +557,14 @@ const H = {
   savePoints: () => {
     const L = DB.lessons.find((l) => l.id === ui.lessonId);
     document.querySelectorAll('[data-pt]').forEach((i) => { L.points[i.dataset.pt][+i.dataset.i] = parseInt(i.value, 10) || 0; });
-    L.passScore = parseInt($('#passScore').value, 10) || 9; save(); toast('บันทึกแล้ว');
+    L.passScore = parseInt($('#passScore').value, 10) || DEFAULT_LESSON.passScore; save(); toast('บันทึกแล้ว');
   },
   rev: (b) => { const p = DB.rooms[b.dataset.code].players.find((x) => x.id === b.dataset.pid); p.evidence[b.dataset.t].status = b.dataset.s; save(); render(); },
   exportCsv: () => {
     const r = DB.rooms[ui.tRoom || Object.values(DB.rooms)[0].code], L = lessonOf(r);
-    const head = ['ชื่อ', 'อาชีพ', 'ขั้นภารกิจ', 'ดัชนีชีวิต', 'แต้มร่วมมือ', 'รวมในเกม', ...TRAITS.map((t) => 'Pre-' + t.name), ...TRAITS.map((t) => 'Game-' + t.name), 'Post-Test', 'ภารกิจชีวิตจริงที่ผ่าน', 'รวม(10)', 'ผ่านเกียรติบัตร'];
-    const rows = ranking(r).map((p) => { const s = totalScore(p, L); return [p.name, roleName(p.role), p.step, p.life, p.coop, p.life + p.coop, ...TRAITS.map((t) => (p.pre || {})[t.id] ?? ''), ...TRAITS.map((t) => p.traitGame[t.id] ?? (p.pre || {})[t.id] ?? ''), p.post ? p.post.score : '', s.ev, s.total, s.pass ? 'ผ่าน' : 'ไม่ผ่าน']; });
+    const maxPost = L.posttest.length * EXAM_MAX, sum = (o) => (o ? Object.values(o).reduce((x, y) => x + y, 0) : '');
+    const head = ['ชื่อ', 'อาชีพ', 'ขั้นภารกิจ', 'ดัชนีชีวิต', 'แต้มร่วมมือ', 'รวมในเกม', ...TRAITS.map((t) => 'Pre-' + t.name + '(เต็ม6)'), 'Pre-รวม(เต็ม' + maxPost + ')', ...TRAITS.map((t) => 'Game-' + t.name + '(เต็ม6)'), ...TRAITS.map((t) => 'Post-' + t.name + '(เต็ม6)'), 'Post-รวม(เต็ม' + maxPost + ')', 'ภารกิจชีวิตจริงที่ผ่าน', 'รวม(เต็ม' + (maxPost + TRAITS.length) + ')', 'ผ่านเกียรติบัตร'];
+    const rows = ranking(r).map((p) => { const s = totalScore(p, L), pre = p.pre || {}, bt = (p.post && p.post.byTrait) || {}; return [p.name, roleName(p.role), p.step, p.life, p.coop, p.life + p.coop, ...TRAITS.map((t) => pre[t.id] ?? ''), sum(p.pre), ...TRAITS.map((t) => p.traitGame[t.id] ?? pre[t.id] ?? ''), ...TRAITS.map((t) => (p.post ? bt[t.id] ?? 0 : '')), p.post ? p.post.score : '', s.ev, s.total, s.pass ? 'ผ่าน' : 'ไม่ผ่าน']; });
     const csv = '﻿' + [head, ...rows].map((l) => l.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); a.download = 'smart-integrity-city-' + r.code + '.csv'; a.click();
   },
@@ -537,11 +573,11 @@ const H = {
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (!b) return; e.preventDefault(); const f = H[b.dataset.act]; if (f) f(b); });
 document.addEventListener('input', (e) => {
   const b = e.target.dataset && e.target.dataset.bind;
-  if (b === 'preAns') ui.pre.ans[+e.target.dataset.i] = e.target.value;
+  if (b === 'examAns') { const P = e.target.dataset.k === 'post' ? ui.post : ui.pre; if (P) P.ans[+e.target.dataset.i] = e.target.value; }
   if (b === 'actText' && ui.act) ui.act.text = e.target.value;
 });
 document.addEventListener('change', (e) => {
-  const b = e.target.dataset && e.target.dataset.bind; if (!b || b === 'preAns' || b === 'actText') return;
+  const b = e.target.dataset && e.target.dataset.bind; if (!b || b === 'examAns' || b === 'actText') return;
   if (b === 'actSet') { if (ui.act) ui.act[e.target.dataset.f] = e.target.value; return; }
   ui[b] = e.target.value; if (b === 'tRoom' || b === 'slotRole' || b === 'slotTrait' || b === 'auditTarget') return; render();
 });
