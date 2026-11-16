@@ -19,40 +19,9 @@ const TRAITS = [
 const TEACHER_CODE_HASHES = ['f9d9335d70b421c989cdd6aaae450adcefd67e73d336c2fc4547ad54a71911e8'];
 
 // ตารางแต้มกลาง: [ดัชนีชีวิต, แต้มความร่วมมือ, ดัชนีเมือง]
-const DEFAULT_POINTS = {
-  ownPass: [15, 0, 5],
-  ownCorrupt: [-5, 0, -10],
-  helpPass: [0, 10, 5],
-  helpCorrupt: [0, 0, -5],
-  traitGood: [10, 0, 0],
-  traitOk: [5, 0, 0],
-  traitBad: [-5, 0, -5],
-  ethicsRight: [10, 0, 5],
-  ethicsWrong: [-10, 0, -5],
-  auditHonest: [10, 0, 0],
-  seizeNoStep: [-10, 0, 0],
-  escape: [-10, 0, -10],
-  auditLow: [-5, 0, -5], // ใช้กับผลตรวจ 1-3 คะแนน (ครูปรับได้)
-  auditRight: [10, 0, 10],
-  auditWrong: [-10, 0, -10],
-};
-const POINT_LABELS = {
-  ownPass: 'ภารกิจตัวละครทำสำเร็จ',
-  ownCorrupt: 'ภารกิจตัวละครตอบเชิงทุจริต',
-  helpPass: 'ภารกิจช่วยเหลือสำเร็จ',
-  helpCorrupt: 'ภารกิจช่วยเหลือตอบเชิงทุจริต',
-  traitGood: 'ช่องคุณลักษณะ: ตอบดี',
-  traitOk: 'ช่องคุณลักษณะ: พอใช้',
-  traitBad: 'ช่องคุณลักษณะ: ไม่เหมาะสม',
-  ethicsRight: 'ช่องท้าทายจริยธรรม: ถูก',
-  ethicsWrong: 'ช่องท้าทายจริยธรรม: ผิด',
-  auditHonest: 'ตรวจสอบแล้วพบว่าสุจริต (4–5 คะแนน)',
-  seizeNoStep: 'ถูกยึดเป้าหมายแต่ยังไม่มีขั้นที่สำเร็จ',
-  escape: 'ใช้การ์ดหนีการตรวจสอบ',
-  auditLow: 'ผลตรวจ 1–3 คะแนน (ลงโทษตามกติกา)',
-  auditRight: 'ช่องตรวจสอบ: ตอบถูก',
-  auditWrong: 'ช่องตรวจสอบ: ตอบผิด',
-};
+// หมายเหตุ: กติกาคะแนนใหม่กำหนดตายตัวใน core.js (ภารกิจตัวเอง = เลื่อนขั้น, ช่วยเหลือ = ร่วมมือ +10, ช่องคุณลักษณะ/จริยธรรม = ±10 ชีวิต/เมือง, ตรวจสอบ = ไม่มีผล)
+const DEFAULT_POINTS = {};
+const POINT_LABELS = {};
 
 const DEFAULT_LESSON = {
   id: 'demo',

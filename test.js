@@ -7,32 +7,29 @@ const C = require('./core.js');
 const L = JSON.parse(JSON.stringify(global.DEFAULT_LESSON));
 const mkRoom = () => ({ city: 100, cityStart: 100, status: 'playing', log: [], players: [] });
 
-// 1) ภารกิจตัวละครสำเร็จ: +15 ชีวิต, +5 เมือง, เลื่อนขั้น
+// 1) ภารกิจของตัวเองผ่าน: เลื่อนขั้น +1 ไม่ให้คะแนนอื่น (ชีวิต/ร่วมมือ/เมือง คงเดิม)
 let r = mkRoom(), p = C.newPlayer('A', 'gov'); r.players.push(p);
 C.resolveCivic(r, L, p, 'gov', 'pass', 'think');
-assert.deepStrictEqual([p.life, p.step, r.city], [15, 1, 105]);
-
-// 2) ตอบเชิงทุจริต: -5 ชีวิต, -10 เมือง
-C.resolveCivic(r, L, p, 'gov', 'corrupt', 'think');
-assert.deepStrictEqual([p.life, r.city], [10, 95]);
-
-// 3) ภารกิจช่วยเหลือสำเร็จ: +10 ร่วมมือ, +5 เมือง
+assert.deepStrictEqual([p.life, p.coop, p.step, r.city], [0, 0, 1, 100]);
+// 2) ไม่ผ่าน/ทุจริต ในภารกิจตัวเอง: อยู่ขั้นเดิม ไม่เปลี่ยนคะแนน
+C.resolveCivic(r, L, p, 'gov', 'fail', 'think'); C.resolveCivic(r, L, p, 'gov', 'corrupt', 'think');
+assert.deepStrictEqual([p.life, p.coop, p.step, r.city], [0, 0, 1, 100]);
+// 3) ช่วยเหลือภารกิจของคนอื่นผ่าน: แต้มร่วมมือ +10 เท่านั้น
 C.resolveCivic(r, L, p, 'biz', 'pass', 'honesty');
-assert.deepStrictEqual([p.coop, r.city], [10, 100]);
-
-// 4) ตรวจสอบ 0 คะแนน: ยึด 1 ขั้น; ถ้าไม่มีขั้น หักชีวิต -10 แทน
-C.resolveAudit(r, L, p, { score: 0 });
-assert.strictEqual(p.step, 0);
-const lifeBefore = p.life; C.resolveAudit(r, L, p, { score: 0 });
-assert.strictEqual(p.life, lifeBefore - 10);
-
-// 5) การ์ดหนี: -10/-10
-const cityB = r.city; C.resolveAudit(r, L, p, { escape: true });
-assert.strictEqual(r.city, cityB - 10);
-
-// 6) ตรวจสอบ 4-5 คะแนน: +10 ชีวิต
-const l2 = p.life; C.resolveAudit(r, L, p, { score: 5 });
-assert.strictEqual(p.life, l2 + 10);
+assert.deepStrictEqual([p.life, p.coop, p.step, r.city], [0, 10, 1, 100]);
+C.resolveCivic(r, L, p, 'biz', 'fail', 'honesty'); assert.strictEqual(p.coop, 10);
+// 4) ช่องตรวจสอบ: ให้ 0-3 แต่ไม่มีผลต่อคะแนนใด ๆ
+for (const s of [0, 1, 2, 3]) { const before = [p.life, p.coop, p.step, r.city]; C.resolveAudit(r, L, p, { score: s }); assert.deepStrictEqual([p.life, p.coop, p.step, r.city], before); }
+// 5) ช่องคุณลักษณะ/ท้าทายจริยธรรม: ผ่าน +10 ชีวิต +10 เมือง, ไม่ผ่าน -10/-10
+const r5 = mkRoom(), p5 = C.newPlayer('E', 'biz'); r5.players.push(p5);
+C.resolveTrait(r5, L, p5, 'honesty', true); assert.deepStrictEqual([p5.life, p5.coop, r5.city], [10, 0, 110]);
+C.resolveEthics(r5, L, p5, 'think', false); assert.deepStrictEqual([p5.life, p5.coop, r5.city], [0, 0, 100]);
+C.resolveTrait(r5, L, p5, 'honesty', false); assert.deepStrictEqual([p5.life, r5.city], [-10, 90]);
+// 6) ผ่านช่องคุณลักษณะ/จริยธรรม = คำตอบตรงข้อสอบ (ได้ ≥ 2/3)
+const ex = L.pretest[6];
+assert.strictEqual(C.matchExam(ex.ans, ex).pass, true);
+assert.strictEqual(C.matchExam('วันนี้อากาศดีมากเลยไปเที่ยวทะเลกัน', ex).pass, false);
+assert.strictEqual(C.matchExam('ไม่มีใครเห็น เก็บเงินไว้ใช้เองและไม่บอกใคร', ex).pass, false);
 
 // 7) เมืองล่มสลายเมื่อดัชนีเมือง 0
 r = mkRoom(); p = C.newPlayer('B', 'biz'); r.players.push(p);
@@ -80,12 +77,6 @@ const part = C.scoreExam('ฉันจะส่งคืนเจ้าของ
 assert(L.posttest.every((x) => C.scoreExam(x.ans + x.ans, x).score <= 3));
 
 // 12) ช่องตรวจสอบแบบใหม่: ถูก +10 ชีวิต/+10 เมือง, ผิด -10/-10 และชุดข้อสอบ 6 อาชีพ อาชีพละ 10 ข้อ
-r = mkRoom(); p = C.newPlayer('D', 'police'); r.players.push(p);
-C.resolveAudit(r, L, p, { right: true });
-assert.deepStrictEqual([p.life, r.city], [10, 110]);
-C.resolveAudit(r, L, p, { right: false });
-assert.deepStrictEqual([p.life, r.city], [0, 100]);
-
 const auditRoles = ['police', 'gov', 'citizen', 'press', 'local', 'biz'];
 for (const role of auditRoles) {
   assert(Array.isArray(L.auditBank[role]), 'missing auditBank for ' + role);
@@ -116,7 +107,8 @@ const allRightAns = sampleItems.map((it) => it.ans);
 const tf10 = C.evalTfMission(allRightAns, sampleItems);
 assert.strictEqual(tf10.correct, 10); assert.strictEqual(tf10.pass, true); assert.strictEqual(tf10.verdict, 'pass');
 const tf7 = C.evalTfMission(allRightAns.map((v, i) => (i < 7 ? v : !v)), sampleItems);
-assert.strictEqual(tf7.correct, 7); assert.strictEqual(tf7.pass, true);
+assert.strictEqual(tf7.correct, 7); assert.strictEqual(tf7.pass, false); // ต้องถูกครบ 10/10 ข้อจึงผ่านขั้น
+const tf9 = C.evalTfMission(allRightAns.map((v, i) => (i < 9 ? v : !v)), sampleItems); assert.strictEqual(tf9.pass, false);
 const tf6 = C.evalTfMission(allRightAns.map((v, i) => (i < 6 ? v : !v)), sampleItems);
 assert.strictEqual(tf6.correct, 6); assert.strictEqual(tf6.pass, false); assert.strictEqual(tf6.verdict, 'fail');
 

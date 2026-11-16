@@ -272,10 +272,9 @@ function vAct() {
       ${a.timed ? '<p class="muted">หมดเวลาแล้วระบบจะส่งคำตอบที่พิมพ์ไว้ให้ตรวจอัตโนมัติ</p>' : ''}`;
   }
   let sel = '';
-  if (a.kind === 'civic') sel = `<select id="vSel">${options([['pass', 'ผ่าน'], ['fail', 'ไม่ผ่าน'], ['corrupt', 'ตอบเชิงทุจริต']], a.suggest)}</select>`;
-  if (a.kind === 'trait') sel = `<select id="vSel">${options([['good', 'ตอบดี'], ['ok', 'พอใช้'], ['bad', 'ไม่เหมาะสม']], a.suggest)}</select>`;
-  if (a.kind === 'ethics') sel = `<select id="vSel">${options([['right', 'ถูก'], ['wrong', 'ผิด']], a.suggest)}</select>`;
-  if (a.kind === 'audit') sel = `<select id="vSel">${options([['right', 'ถูก (+10 ชีวิต, +10 เมือง)'], ['wrong', 'ผิด (−10 ชีวิต, −10 เมือง)']], a.suggest)}</select>`;
+  if (a.kind === 'civic') sel = `<select id="vSel">${options([['pass', 'ผ่าน (+10 แต้มร่วมมือ)'], ['fail', 'ไม่ผ่าน']], a.suggest === 'pass' ? 'pass' : 'fail')}</select>`;
+  if (a.kind === 'trait' || a.kind === 'ethics') sel = `<select id="vSel">${options([['pass', 'ผ่าน (ชีวิต +10, เมือง +10)'], ['fail', 'ไม่ผ่าน (ชีวิต −10, เมือง −10)']], a.suggest)}</select>`;
+  if (a.kind === 'audit') sel = `<select id="vSel">${options([['0', '0 คะแนน'], ['1', '1 คะแนน'], ['2', '2 คะแนน'], ['3', '3 คะแนน']], a.suggest)}</select><div class="muted">ไม่มีผลต่อคะแนนใด ๆ</div>`;
   const alignBox = (typeof a.ev.aligned === 'boolean')
     ? `<div class="q"><b>ตรวจความสอดคล้องกับแนวคำตอบ:</b> <span class="${a.ev.aligned ? 'good' : 'bad'}">${a.ev.aligned ? '✓ ' : '✗ '}${esc(a.ev.note)}</span></div>`
     : '';
@@ -361,7 +360,7 @@ function vTeacher() {
       <p class="row"><button data-act="saveLesson">บันทึก</button><button class="alt" data-act="copyLesson">ทำสำเนาเป็นชุดใหม่</button><button class="danger" data-act="delLesson" ${DB.lessons.length < 2 ? 'disabled' : ''}>ลบชุดนี้</button></p>`;
   }
   if (ui.tTab === 'points') {
-    body += `<table><tr><th>เหตุการณ์</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ดัชนีเมือง</th></tr>${Object.keys(POINT_LABELS).map((k) => `<tr><td>${POINT_LABELS[k]}</td>${[0, 1, 2].map((i) => `<td><input type="number" data-pt="${k}" data-i="${i}" value="${L.points[k][i]}"></td>`).join('')}</tr>`).join('')}</table>
+    body += `<table><tr><th>ช่อง</th><th>กติกาคะแนน (กำหนดตายตัว)</th></tr><tr><td>ภารกิจตัวละครของตัวเอง</td><td>ทำครบ 10 ข้อและถูกทุกข้อ = เลื่อนขั้นภารกิจ +1 (ไม่ให้คะแนนอื่น) · ตกช่องตัวเองอีกรอบแสดงภารกิจถัดไป</td></tr><tr><td>ช่วยเหลือภารกิจคนอื่น</td><td>ผ่าน = แต้มความร่วมมือ +10</td></tr><tr><td>ช่องคุณลักษณะ / ท้าทายจริยธรรม</td><td>คำตอบตรงกับข้อสอบ = ผ่าน ดัชนีชีวิต +10 และดัชนีเมือง +10 · ไม่ตรง = −10 / −10</td></tr><tr><td>ช่องตรวจสอบ</td><td>ให้คะแนน 0–3 แต่ไม่มีผลต่อคะแนนใด ๆ</td></tr></table><div style="display:none"><table><tr><th>เหตุการณ์</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ดัชนีเมือง</th></tr>${Object.keys(POINT_LABELS).map((k) => `<tr><td>${POINT_LABELS[k]}</td>${[0, 1, 2].map((i) => `<td><input type="number" data-pt="${k}" data-i="${i}" value="${L.points[k][i]}"></td>`).join('')}</tr>`).join('')}</table></div>
       <label>เกณฑ์ผ่านเกียรติบัตร (เต็ม ${L.posttest.length * EXAM_MAX + TRAITS.length}: Post-Test ${L.posttest.length * EXAM_MAX} + ภารกิจชีวิตจริง ${TRAITS.length})</label><input type="number" id="passScore" min="1" max="${L.posttest.length * EXAM_MAX + TRAITS.length}" value="${L.passScore}"><p><button data-act="savePoints">บันทึกตารางแต้ม</button></p>`;
   }
   if (ui.tTab === 'review') {
@@ -496,17 +495,16 @@ async function submitAnswer(auto) {
       a.suggest = ev.verdict;
     }
   }
-  if (a.kind === 'trait') a.suggest = traitGrade(ev, a.text || '');
-  if (a.kind === 'ethics') a.suggest = ev.verdict === 'pass' ? 'right' : 'wrong';
+  if ((a.kind === 'trait' || a.kind === 'ethics') && a.qItem) {
+    const m = matchExam(a.text || '', a.qItem, L.exam);
+    a.suggest = m.pass ? 'pass' : 'fail';
+    ev.aligned = m.pass; ev.note = (m.pass ? 'ตรงกับข้อสอบ' : 'ไม่ตรงกับข้อสอบ') + ' (ความใกล้เคียง ≈ ' + Math.min(100, Math.round(m.sim * 100)) + '%, ตรงคำสำคัญ ' + m.hits + '/3, ได้ ' + m.score + '/3 ต้อง ≥ ' + EXAM_MATCH_MIN + ')';
+  }
   if (a.kind === 'audit') {
-    if (hasExternalAI && ev && ev.verdict) {
-      a.suggest = ev.verdict === 'pass' ? 'right' : 'wrong';
-    } else {
-      const auditRes = evalAudit(a.text || '', L, a.qItem);
-      a.suggest = auditRes.right ? 'right' : 'wrong';
-      ev.note = auditRes.note;
-      ev.aligned = auditRes.right;
-    }
+    const auditRes = evalAudit(a.text || '', L, a.qItem);
+    const sc = a.qItem ? Math.min(EXAM_MAX, Math.max(auditRes.score || 0, scoreExam2(a.text || '', a.qItem, L.exam).score)) : Math.min(EXAM_MAX, auditRes.score || 0);
+    a.suggest = String(sc);
+    ev.note = 'ได้ ' + sc + ' / ' + EXAM_MAX + ' คะแนน (ไม่มีผลต่อคะแนนใด ๆ)'; ev.aligned = undefined;
   }
   a.stage = 'review'; a.busy = false; render();
 }
@@ -674,8 +672,10 @@ const H = {
       });
       return go('game');
     }
-    if (a.kind === 'trait') Object.assign(a, { title: 'ช่องคุณลักษณะ: ' + traitName(a.trait), q: rnd(L.traits[a.trait]) });
-    if (a.kind === 'ethics') { const e = rnd(L.ethics); Object.assign(a, { trait: e.t, title: 'ช่องท้าทายจริยธรรม', q: e.q }); }
+    // ช่องคุณลักษณะ/ท้าทายจริยธรรม: สุ่มโจทย์จากข้อสอบ (Pre/Post) แล้วตรวจว่าคำตอบตรงกับแนวคำตอบของข้อสอบหรือไม่
+    const examPool = (tr) => [...L.pretest, ...L.posttest].filter((x) => !tr || x.trait === tr);
+    if (a.kind === 'trait') { const it = rnd(examPool(a.trait)); Object.assign(a, { title: 'ช่องคุณลักษณะ: ' + traitName(a.trait), q: it.q, qItem: it }); }
+    if (a.kind === 'ethics') { const it = rnd(examPool()); Object.assign(a, { trait: it.trait, title: 'ช่องท้าทายจริยธรรม', q: it.q, qItem: it }); }
     Object.assign(a, { timed: true, stage: 'read' }); render();
   },
   pickTf: (b) => {
@@ -714,9 +714,9 @@ const H = {
   confirmAct: () => {
     const a = ui.act, r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === a.pid), v = $('#vSel').value; let msg;
     if (a.kind === 'civic') msg = resolveCivic(r, L, p, a.owner, v, a.trait);
-    if (a.kind === 'trait') msg = resolveTrait(r, L, p, a.trait, v);
-    if (a.kind === 'ethics') msg = resolveEthics(r, L, p, a.trait, v === 'right');
-    if (a.kind === 'audit') msg = resolveAudit(r, L, p, { right: v === 'right' });
+    if (a.kind === 'trait') msg = resolveTrait(r, L, p, a.trait, v === 'pass');
+    if (a.kind === 'ethics') msg = resolveEthics(r, L, p, a.trait, v === 'pass');
+    if (a.kind === 'audit') msg = resolveAudit(r, L, p, { score: +v });
     ui.notice = { who: p.name, title: a.title, msg }; ui.act = null; save(); toast(msg);
     if (r.status === 'ended') go('end'); else go('game');
   },
@@ -745,8 +745,7 @@ const H = {
   delLesson: () => { if (!confirm('ลบชุดนี้?')) return; DB.lessons = DB.lessons.filter((l) => l.id !== ui.lessonId); save(); go('teacher', { lessonId: null }); },
   savePoints: () => {
     const L = DB.lessons.find((l) => l.id === ui.lessonId);
-    document.querySelectorAll('[data-pt]').forEach((i) => { L.points[i.dataset.pt][+i.dataset.i] = parseInt(i.value, 10) || 0; });
-    L.passScore = parseInt($('#passScore').value, 10) || DEFAULT_LESSON.passScore; save(); toast('บันทึกแล้ว');
+        L.passScore = parseInt($('#passScore').value, 10) || DEFAULT_LESSON.passScore; save(); toast('บันทึกแล้ว');
   },
   rev: (b) => { const p = DB.rooms[b.dataset.code].players.find((x) => x.id === b.dataset.pid); p.evidence[b.dataset.t].status = b.dataset.s; save(); render(); },
   exportCsv: () => {

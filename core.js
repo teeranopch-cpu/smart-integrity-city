@@ -64,44 +64,44 @@ function addTrait(player, trait, d) {
   player.traitGame[trait] = clamp(base + d, 0, TRAIT_MAX);
 }
 
-// ผลภารกิจพลเมือง: verdict = pass | fail | corrupt
+// กติกาคะแนนใหม่ (ตายตัว):
+//  - ภารกิจของตัวเอง: ผ่าน = เลื่อนขั้นภารกิจ +1 ไม่มีคะแนนอื่น
+//  - ช่วยเหลือภารกิจคนอื่น: ผ่าน = แต้มความร่วมมือ +10
+//  - ช่องคุณลักษณะ/ท้าทายจริยธรรม: คำตอบตรงกับข้อสอบ = ผ่าน ดัชนีชีวิต +10 และดัชนีเมือง +10 ไม่ตรง = -10 / -10
+//  - ช่องตรวจสอบ: ให้คะแนน 0-3 แต่ไม่มีผลต่อคะแนนใด ๆ
+const HELP_COOP = 10, EXAM_PASS = [10, 0, 10], EXAM_FAIL = [-10, 0, -10], EXAM_MATCH_MIN = 2;
 function resolveCivic(room, lesson, player, ownerRole, verdict, trait) {
-  const P = lesson.points;
   const own = ownerRole === player.role;
   if (own) {
     if (player.step >= 3) return 'ภารกิจส่วนตัวครบ 3 ขั้นแล้ว';
     if (verdict === 'pass') {
       player.step += 1; addTrait(player, trait, 1);
-      applyDelta(room, player, P.ownPass, 'ภารกิจตัวละครสำเร็จ (ขั้น ' + player.step + ')');
+      applyDelta(room, player, [0, 0, 0], 'ภารกิจตัวละครสำเร็จ (ขั้น ' + player.step + ')');
       return 'สำเร็จ! เลื่อนเป็นขั้น ' + player.step + ' — วางเหรียญภารกิจบนกระดาน';
     }
-    if (verdict === 'corrupt') {
-      addTrait(player, trait, -1);
-      applyDelta(room, player, P.ownCorrupt, 'ภารกิจตัวละครตอบเชิงทุจริต');
-      return 'ตอบเชิงทุจริต: ดัชนีเมืองลดลง';
-    }
-    return 'ยังไม่ผ่าน: อยู่ขั้นเดิม';
+    return 'ยังไม่ผ่าน: อยู่ขั้นเดิม (ต้องทำให้ครบทั้ง 10 ข้อ)';
   }
-  if (verdict === 'pass') { addTrait(player, trait, 1); applyDelta(room, player, P.helpPass, 'ภารกิจช่วยเหลือสำเร็จ'); return 'ช่วยเหลือสำเร็จ ได้แต้มความร่วมมือ'; }
-  if (verdict === 'corrupt') { addTrait(player, trait, -1); applyDelta(room, player, P.helpCorrupt, 'ภารกิจช่วยเหลือตอบเชิงทุจริต'); return 'ตอบเชิงทุจริต: ดัชนีเมืองลดลง'; }
+  if (verdict === 'pass') { addTrait(player, trait, 1); applyDelta(room, player, [0, HELP_COOP, 0], 'ภารกิจช่วยเหลือสำเร็จ'); return 'ช่วยเหลือสำเร็จ ได้แต้มความร่วมมือ +' + HELP_COOP; }
   return 'ยังไม่ผ่าน: ไม่มีการเปลี่ยนแปลงแต้ม';
 }
 
-// ช่องคุณลักษณะ: grade = good | ok | bad
-function resolveTrait(room, lesson, player, trait, grade) {
-  const P = lesson.points;
-  const map = { good: [P.traitGood, 1, 'ตอบดี'], ok: [P.traitOk, 0.5, 'พอใช้'], bad: [P.traitBad, -1, 'ไม่เหมาะสม'] };
-  const [d, t, label] = map[grade];
-  addTrait(player, trait, t);
-  applyDelta(room, player, d, 'ช่องคุณลักษณะ: ' + label);
-  return 'บันทึกผลช่องคุณลักษณะ: ' + label;
+// ตรวจว่าคำตอบ "ตรงกับข้อสอบ" หรือไม่ (ใช้ตัวตรวจ 2 ชั้น ต้องได้ ≥ 2 จาก 3)
+function matchExam(text, q, th) {
+  const r = scoreExam2(text, q, th);
+  return Object.assign({ pass: r.score >= EXAM_MATCH_MIN }, r);
 }
 
-function resolveEthics(room, lesson, player, trait, right) {
-  const P = lesson.points;
-  addTrait(player, trait, right ? 1 : -1);
-  applyDelta(room, player, right ? P.ethicsRight : P.ethicsWrong, 'ช่องท้าทายจริยธรรม: ' + (right ? 'ถูก' : 'ผิด'));
-  return right ? 'ตอบถูก' : 'ตอบผิด';
+// ช่องคุณลักษณะ: pass = true/false
+function resolveTrait(room, lesson, player, trait, pass) {
+  addTrait(player, trait, pass ? 1 : -1);
+  applyDelta(room, player, pass ? EXAM_PASS : EXAM_FAIL, 'ช่องคุณลักษณะ: ' + (pass ? 'ผ่าน' : 'ไม่ผ่าน'));
+  return pass ? 'ผ่าน: ดัชนีชีวิต +10 และดัชนีเมือง +10' : 'ไม่ผ่าน: ดัชนีชีวิต −10 และดัชนีเมือง −10';
+}
+
+function resolveEthics(room, lesson, player, trait, pass) {
+  addTrait(player, trait, pass ? 1 : -1);
+  applyDelta(room, player, pass ? EXAM_PASS : EXAM_FAIL, 'ช่องท้าทายจริยธรรม: ' + (pass ? 'ผ่าน' : 'ไม่ผ่าน'));
+  return pass ? 'ผ่าน: ดัชนีชีวิต +10 และดัชนีเมือง +10' : 'ไม่ผ่าน: ดัชนีชีวิต −10 และดัชนีเมือง −10';
 }
 
 // ตรวจคำตอบช่องตรวจสอบ: ตรวจว่าข้อความสอดคล้องกับแนวคำตอบของโจทย์หรือไม่ (ไม่ให้ผ่านจากคำทั่วไปที่ไม่ตรงแนวคำตอบ)
@@ -137,8 +137,8 @@ function evalHelp(text, lesson, qItem) {
   return { verdict: ev.verdict, ev, score: ev.auditScore || 0, hits: ev.good, total: 0, matched: [], note: ev.verdict === 'pass' ? 'สอดคล้องกับหลักสุจริต' : 'คำตอบยังไม่ชัดเจน' };
 }
 
-// ตรวจภารกิจตัวละครแบบติ๊กถูก/ผิด 10 ข้อ (เกณฑ์ผ่าน 7/10 ข้อ)
-const TF_PASS_MIN = 7;
+// ตรวจภารกิจตัวละครแบบติ๊กถูก/ผิด 10 ข้อ (ต้องถูกครบ 10/10 ข้อ)
+const TF_PASS_MIN = 10; // ต้องทำภารกิจให้ครบทั้ง 10 ข้อ (ถูกทุกข้อ) จึงผ่านขั้น
 function evalTfMission(answers, items, passMin = TF_PASS_MIN) {
   const details = (items || []).map((it, i) => {
     const pick = answers ? answers[i] : null;
@@ -153,39 +153,11 @@ function evalTfMission(answers, items, passMin = TF_PASS_MIN) {
   return { verdict: pass ? 'pass' : 'fail', correct, total, need, pass, details, note };
 }
 
-// ตรวจสอบ: โหมดใหม่ { right: true|false } (+10 ชีวิต/+10 เมือง หรือ -10/-10) และรองรับโหมดเดิม { escape, score, lowChoice }
+// ช่องตรวจสอบ: บันทึกคะแนน 0-3 ลงประวัติเท่านั้น ไม่มีผลต่อดัชนีชีวิต แต้มร่วมมือ ดัชนีเมือง หรือขั้นภารกิจ
 function resolveAudit(room, lesson, target, opt = {}) {
-  const P = lesson.points;
-  if (typeof opt.right === 'boolean') {
-    addTrait(target, 'honesty', opt.right ? 1 : -1);
-    const d = opt.right ? (P.auditRight || [10, 0, 10]) : (P.auditWrong || [-10, 0, -10]);
-    applyDelta(room, target, d, 'ช่องตรวจสอบ: ' + (opt.right ? 'ตอบถูก' : 'ตอบผิด'));
-    return opt.right
-      ? 'ตอบถูก: เพิ่มดัชนีชีวิต +10 และดัชนีเมือง +10'
-      : 'ตอบผิด: ลบดัชนีชีวิต −10 และดัชนีเมือง −10';
-  }
-  const { escape, score, lowChoice } = opt;
-  if (escape) {
-    applyDelta(room, target, P.escape, 'ใช้การ์ดหนีการตรวจสอบ');
-    return 'ใช้การ์ดหนีการตรวจสอบ: หักดัชนีเมือง −10 และดัชนีชีวิต −10';
-  }
-  if (score === 0) {
-    if (target.step > 0) {
-      target.step -= 1;
-      room.log.push({ at: Date.now(), pid: target.id, life: 0, coop: 0, city: 0, reason: 'ถูกยึดเป้าหมาย 1 ขั้น' });
-      return 'พบทุจริต: ยึดเป้าหมายที่ทำสำเร็จ 1 ขั้น (เหลือ ' + target.step + ' ขั้น) — เก็บเหรียญภารกิจออกจากกระดาน';
-    }
-    applyDelta(room, target, P.seizeNoStep, 'ถูกยึดเป้าหมายแต่ยังไม่มีขั้นที่สำเร็จ');
-    return 'ยังไม่มีขั้นที่สำเร็จ จึงหักดัชนีชีวิต −10 แทน';
-  }
-  if (score <= 3) {
-    if (lowChoice === 'back') { room.log.push({ at: Date.now(), pid: target.id, life: 0, coop: 0, city: 0, reason: 'ตรวจสอบ ' + score + ' คะแนน: เดินถอยหลัง' }); return 'ให้ผู้เล่นเดินถอยหลังบนกระดานตามกติกา'; }
-    applyDelta(room, target, P.auditLow, 'ตรวจสอบ ' + score + ' คะแนน: ลงโทษตามกติกา');
-    return 'หักแต้มตามที่ครูกำหนดในตารางแต้ม';
-  }
-  addTrait(target, 'honesty', 1);
-  applyDelta(room, target, P.auditHonest, 'ตรวจสอบแล้วสุจริต (' + score + ' คะแนน)');
-  return 'ผู้ถูกตรวจสอบสุจริต ได้ดัชนีชีวิตเพิ่ม — ผู้ตรวจสอบถูกข้อหาหมิ่นประมาท';
+  const score = clamp(Math.round(opt.score || 0), 0, EXAM_MAX);
+  room.log.push({ at: Date.now(), pid: target.id, life: 0, coop: 0, city: 0, reason: 'ช่องตรวจสอบ: ' + score + '/' + EXAM_MAX + ' (ไม่มีผลต่อคะแนน)' });
+  return 'ผลตรวจสอบ ' + score + ' / ' + EXAM_MAX + ' คะแนน — ไม่มีผลต่อดัชนีและแต้มใด ๆ';
 }
 
 function ranking(room) {
@@ -279,5 +251,5 @@ function totalScore(player, lesson) {
 const TRAITS_COUNT = 5;
 
 if (typeof module !== 'undefined') {
-  module.exports = { scoreExam2, reversed, similarity, coverage, simScore, tokens, SIM_DEFAULT, evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
+  module.exports = { matchExam, EXAM_PASS, EXAM_FAIL, scoreExam2, reversed, similarity, coverage, simScore, tokens, SIM_DEFAULT, evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
 }
