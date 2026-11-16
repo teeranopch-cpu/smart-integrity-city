@@ -12,8 +12,8 @@ const loadDB = () => {
         l.pretest = JSON.parse(JSON.stringify(DEFAULT_LESSON.pretest)); l.posttest = JSON.parse(JSON.stringify(DEFAULT_LESSON.posttest)); l.passScore = DEFAULT_LESSON.passScore;
       }
       if (!l.points) l.points = JSON.parse(JSON.stringify(DEFAULT_POINTS));
-      if (!l.points.auditRight) l.points.auditRight = [...DEFAULT_POINTS.auditRight];
-      if (!l.points.auditWrong) l.points.auditWrong = [...DEFAULT_POINTS.auditWrong];
+      if (DEFAULT_POINTS.auditRight && !l.points.auditRight) l.points.auditRight = [...DEFAULT_POINTS.auditRight];
+      if (DEFAULT_POINTS.auditWrong && !l.points.auditWrong) l.points.auditWrong = [...DEFAULT_POINTS.auditWrong];
       if (!l.auditBank || typeof l.auditBank !== 'object') l.auditBank = JSON.parse(JSON.stringify(DEFAULT_LESSON.auditBank));
       else ROLES.forEach((ro) => { if (!Array.isArray(l.auditBank[ro.id]) || !l.auditBank[ro.id].length) l.auditBank[ro.id] = JSON.parse(JSON.stringify(DEFAULT_LESSON.auditBank[ro.id])); });
       if (!l.missions || typeof l.missions !== 'object' || ROLES.some((ro) => !Array.isArray(l.missions[ro.id]) || l.missions[ro.id].length < 3 || !Array.isArray(l.missions[ro.id][0].items))) {
@@ -21,6 +21,9 @@ const loadDB = () => {
       }
       if (!l.helpBank || typeof l.helpBank !== 'object') l.helpBank = JSON.parse(JSON.stringify(DEFAULT_LESSON.helpBank));
       else ROLES.forEach((ro) => { if (!Array.isArray(l.helpBank[ro.id]) || !l.helpBank[ro.id].length) l.helpBank[ro.id] = JSON.parse(JSON.stringify(DEFAULT_LESSON.helpBank[ro.id])); });
+      if (!l.traits || typeof l.traits !== 'object' || TRAITS.some((tr) => !Array.isArray(l.traits[tr.id]) || l.traits[tr.id].length < 10 || typeof l.traits[tr.id][0] !== 'object' || !l.traits[tr.id][0].keys)) {
+        l.traits = JSON.parse(JSON.stringify(DEFAULT_LESSON.traits));
+      }
     });
     return d;
   } catch { return initDB(); }
@@ -279,7 +282,7 @@ function vAct() {
     ? `<div class="q"><b>ตรวจความสอดคล้องกับแนวคำตอบ:</b> <span class="${a.ev.aligned ? 'good' : 'bad'}">${a.ev.aligned ? '✓ ' : '✗ '}${esc(a.ev.note)}</span></div>`
     : '';
   const ansHint = (a.qItem && a.qItem.ans)
-    ? `<details ${(a.kind === 'audit' || a.kind === 'civic') ? 'open ' : ''}class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ / แนวทางเกณฑ์ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
+    ? `<details ${(a.kind === 'audit' || a.kind === 'civic' || a.kind === 'trait') ? 'open ' : ''}class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ / แนวทางเกณฑ์ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
     : '';
   return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text) || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>${alignBox}${ansHint}<div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
     <label>ยืนยันผลก่อนบันทึก (ผู้ควบคุมเกมแก้ไขได้)</label>${sel}
@@ -355,7 +358,7 @@ function vTeacher() {
   let body = '';
   if (ui.tTab === 'lessons' || ui.tTab === 'points') body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>`;
   if (ui.tTab === 'lessons') {
-    body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจตัวละคร 3 ขั้น (ขั้นละ 10 ข้อ ถูก/ผิด) ของ 6 ตัวละคร, คลังภารกิจช่วยเหลือ (60 สถานการณ์), คลังข้อสอบตรวจสอบ (60 ข้อ), คำสำคัญที่ใช้ตรวจ</p>
+    body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจตัวละคร 3 ขั้น (ขั้นละ 10 ข้อ ถูก/ผิด) ของ 6 ตัวละคร, คลังภารกิจช่วยเหลือ (60 สถานการณ์), คลังการ์ดคุณลักษณะ 5 ด้าน (50 การ์ด), คลังข้อสอบตรวจสอบ (60 ข้อ), คำสำคัญที่ใช้ตรวจ</p>
       <textarea id="lJson" style="min-height:420px;font-family:monospace;font-size:.8rem">${esc(JSON.stringify(L, null, 2))}</textarea>
       <p class="row"><button data-act="saveLesson">บันทึก</button><button class="alt" data-act="copyLesson">ทำสำเนาเป็นชุดใหม่</button><button class="danger" data-act="delLesson" ${DB.lessons.length < 2 ? 'disabled' : ''}>ลบชุดนี้</button></p>`;
   }
@@ -460,7 +463,6 @@ function enterRoom(code) {
   ui.code = r.code; DB.session.roomCode = r.code; save();
   go(r.status === 'lobby' ? 'lobby' : r.status === 'playing' ? 'game' : 'end');
 }
-function traitGrade(r, t) { if (r.verdict === 'corrupt') return 'bad'; if (r.verdict === 'pass') return r.good >= 2 ? 'good' : 'ok'; return t.trim().length >= 15 ? 'ok' : 'bad'; }
 
 function examBegin(P) { P.phase = 'answer'; P.startedAt = Date.now(); go(ui.view); const t = $('#examText'); if (t && t.focus) t.focus(); }
 async function examSubmit(P, items, kind) { // ส่งคำตอบข้อนี้ → ประเมิน → แสดงคะแนนข้อนี้
@@ -495,10 +497,16 @@ async function submitAnswer(auto) {
       a.suggest = ev.verdict;
     }
   }
-  if ((a.kind === 'trait' || a.kind === 'ethics') && a.qItem) {
-    const m = matchExam(a.text || '', a.qItem, L.exam);
-    a.suggest = m.pass ? 'pass' : 'fail';
-    ev.aligned = m.pass; ev.note = (m.pass ? 'ตรงกับข้อสอบ' : 'ไม่ตรงกับข้อสอบ') + ' (ความใกล้เคียง ≈ ' + Math.min(100, Math.round(m.sim * 100)) + '%, ตรงคำสำคัญ ' + m.hits + '/3, ได้ ' + m.score + '/3 ต้อง ≥ ' + EXAM_MATCH_MIN + ')';
+  if (a.kind === 'trait' || a.kind === 'ethics') {
+    if (a.qItem) {
+      const m = matchExam(a.text || '', a.qItem, L.exam);
+      a.suggest = m.pass ? 'pass' : 'fail';
+      ev.aligned = m.pass; ev.note = (m.pass ? 'ผ่านเกณฑ์ (ตรงกับแนวคำตอบ)' : 'ไม่ผ่านเกณฑ์ (ยังไม่ตรงกับแนวคำตอบ)') + ' (ความใกล้เคียง ≈ ' + Math.min(100, Math.round(m.sim * 100)) + '%, ตรงคำสำคัญ ' + m.hits + '/3, ได้ ' + m.score + '/3 ต้อง ≥ ' + EXAM_MATCH_MIN + ')';
+    } else {
+      a.suggest = ev.verdict === 'pass' ? 'pass' : 'fail';
+      ev.aligned = a.suggest === 'pass';
+      ev.note = a.suggest === 'pass' ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์';
+    }
   }
   if (a.kind === 'audit') {
     const auditRes = evalAudit(a.text || '', L, a.qItem);
@@ -672,10 +680,25 @@ const H = {
       });
       return go('game');
     }
-    // ช่องคุณลักษณะ/ท้าทายจริยธรรม: สุ่มโจทย์จากข้อสอบ (Pre/Post) แล้วตรวจว่าคำตอบตรงกับแนวคำตอบของข้อสอบหรือไม่
-    const examPool = (tr) => [...L.pretest, ...L.posttest].filter((x) => !tr || x.trait === tr);
-    if (a.kind === 'trait') { const it = rnd(examPool(a.trait)); Object.assign(a, { title: 'ช่องคุณลักษณะ: ' + traitName(a.trait), q: it.q, qItem: it }); }
-    if (a.kind === 'ethics') { const it = rnd(examPool()); Object.assign(a, { trait: it.trait, title: 'ช่องท้าทายจริยธรรม', q: it.q, qItem: it }); }
+    // ช่องคุณลักษณะ: สุ่มการ์ดไม่ซ้ำจากคลังข้อสอบคุณลักษณะ 50 การ์ด (ด้านละ 10 การ์ด) และตรวจแบบผ่าน/ไม่ผ่าน
+    if (a.kind === 'trait') {
+      const bank = (L.traits && Array.isArray(L.traits[a.trait]) && L.traits[a.trait].length) ? L.traits[a.trait] : DEFAULT_LESSON.traits[a.trait];
+      if (!r.usedTrait) r.usedTrait = {};
+      let pool = bank.map((item, idx) => ({ item, idx })).filter((x) => !(r.usedTrait[a.trait] || []).includes(x.idx));
+      if (!pool.length) { r.usedTrait[a.trait] = []; pool = bank.map((item, idx) => ({ item, idx })); }
+      const pick = rnd(pool);
+      r.usedTrait[a.trait] = [...(r.usedTrait[a.trait] || []), pick.idx];
+      const it = pick.item;
+      const qText = typeof it === 'string' ? it : it.q;
+      const title = (typeof it === 'object' && it.title) ? it.title : ('ช่องคุณลักษณะ: ' + traitName(a.trait));
+      Object.assign(a, { title, q: qText, qItem: typeof it === 'string' ? null : it });
+    }
+    // ช่องท้าทายจริยธรรม: สุ่มโจทย์จากข้อสอบ (Pre/Post) แล้วตรวจว่าคำตอบตรงกับแนวคำตอบของข้อสอบหรือไม่
+    if (a.kind === 'ethics') {
+      const examPool = () => [...L.pretest, ...L.posttest];
+      const it = rnd(examPool());
+      Object.assign(a, { trait: it.trait, title: 'ช่องท้าทายจริยธรรม', q: it.q, qItem: it });
+    }
     Object.assign(a, { timed: true, stage: 'read' }); render();
   },
   pickTf: (b) => {

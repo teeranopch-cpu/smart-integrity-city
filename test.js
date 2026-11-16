@@ -136,4 +136,21 @@ assert(C.scoreExam2(L.pretest[0].ans, L.pretest[0]).score === 3);
 // เกณฑ์ที่ครูปรับ
 assert.strictEqual(C.simScore(0.5, { t1: 0.1, t2: 0.6, t3: 0.9 }), 1);
 
+// 15) คลังข้อสอบช่องคุณลักษณะใหม่: 5 ด้าน x 10 การ์ด = 50 การ์ด และตรวจแบบผ่าน/ไม่ผ่านเท่านั้น
+for (const tr of ['think', 'discipline', 'honesty', 'sufficiency', 'public']) {
+  assert(Array.isArray(L.traits[tr]) && L.traits[tr].length === 10, 'traits 10 cards for ' + tr);
+  L.traits[tr].forEach((item, i) => {
+    assert(item && typeof item.title === 'string' && item.title.length > 0, 'trait title ' + tr + ' #' + (i + 1));
+    assert(typeof item.q === 'string' && item.q.length > 0 && typeof item.ans === 'string' && item.ans.length > 0, 'trait q/ans ' + tr + ' #' + (i + 1));
+    assert(Array.isArray(item.keys) && item.keys.length === 3 && item.keys.every((g) => g.length > 0), 'trait keys ' + tr + ' #' + (i + 1));
+    assert.strictEqual(C.scoreExam(item.ans, item).score, 3, 'trait ' + tr + ' #' + (i + 1) + ' ans scoreExam === 3');
+    assert.strictEqual(C.scoreExam2(item.ans, item).score, 3, 'trait ' + tr + ' #' + (i + 1) + ' ans scoreExam2 === 3');
+    assert.strictEqual(C.matchExam(item.ans, item).pass, true, 'trait ' + tr + ' #' + (i + 1) + ' ans should pass');
+    assert.strictEqual(C.matchExam('', item).pass, false, 'trait ' + tr + ' #' + (i + 1) + ' empty should fail');
+    assert.strictEqual(C.matchExam('วันนี้อากาศดีมากเลยไปเที่ยวทะเลกัน', item).pass, false, 'trait ' + tr + ' #' + (i + 1) + ' off-topic should fail');
+    assert.strictEqual(C.matchExam('ไม่ต้องสนใจ ช่างมัน ปล่อยไว้', item).pass, false, 'trait ' + tr + ' #' + (i + 1) + ' reverse cue should fail');
+    assert.strictEqual(C.matchExam('ไม่มีใครเห็น เก็บไว้ใช้เองและไม่บอกใคร', item).pass, false, 'trait ' + tr + ' #' + (i + 1) + ' selfish reverse cue should fail');
+  });
+}
+
 console.log('ทุกการทดสอบผ่าน');
