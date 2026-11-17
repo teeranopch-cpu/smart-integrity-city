@@ -110,3 +110,6 @@ body{background:var(--bg);position:relative;min-height:100vh}
 body::before{content:"";position:fixed;inset:-24px;z-index:-2;background:url(assets/bg.jpg) center/cover no-repeat;filter:blur(14px)}
 body::after{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(10,35,66,.66),rgba(10,35,66,.78) 60%,rgba(7,26,51,.9))}
 @media print{body::before,body::after{display:none}}
+
+.logo{padding:0;overflow:hidden}.logo img{max-width:440px}.logo.sm img{max-width:300px}
+@media (max-width:600px){.logo{padding:0}.logo img{max-width:100%}.logo.sm img{max-width:260px}}
