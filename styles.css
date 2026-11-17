@@ -58,3 +58,49 @@ h1.slot{margin:0 0 12px}
 .pill.good{background:#174c30;color:var(--good)}
 .pill.bad{background:#5c2020;color:var(--bad)}
 
+
+/* โลโก้ (พื้นขาวเพื่อให้อ่านชัดบนพื้นน้ำเงิน) */
+.logo{background:#fff;border-radius:14px;padding:10px 14px;margin:0 0 14px;text-align:center}
+.logo img{display:block;margin:0 auto;width:100%;max-width:380px;height:auto}
+.logo.sm img{max-width:240px}
+
+/* รองรับมือถือและแท็บเล็ต */
+html{-webkit-text-size-adjust:100%}
+body{padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+img,svg,canvas{max-width:100%}
+input,select,textarea{font-size:16px} /* กัน iOS ซูมเองเมื่อแตะช่องกรอก */
+button{min-height:40px;touch-action:manipulation}
+.scroll,.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{max-width:100%}
+@media (max-width:900px){ /* แท็บเล็ต/ไอแพด */
+  main{padding:12px}
+  .card{padding:14px}
+  button{min-height:44px;padding:10px 16px}
+  button.sm{min-height:40px;min-width:44px}
+  .tabs button{flex:1 1 auto}
+  .grid.g2,.grid.g3{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  .focus textarea{min-height:200px}
+}
+@media (max-width:600px){ /* โทรศัพท์ */
+  body{font-size:15px}
+  main{padding:10px}
+  .top{padding:8px 12px}
+  .brand{font-size:1rem}
+  #nav{width:100%;justify-content:space-between;flex-wrap:wrap}
+  .card{padding:12px;border-radius:10px}
+  .grid.g2,.grid.g3{grid-template-columns:1fr}
+  .row{gap:6px}
+  .row>button,.row>select{flex:1 1 auto}
+  h1{font-size:1.5rem}h2{font-size:1.25rem}h3{font-size:1.1rem}
+  .code{font-size:1.8rem;letter-spacing:.2em}
+  .q.big{font-size:1.05rem}
+  .big{font-size:1.6rem}
+  .focus{padding:16px 12px}
+  .focus #mtimer{font-size:2.4rem}
+  table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  th,td{padding:6px 6px}
+  .toast{left:12px;right:12px;transform:none;text-align:center;bottom:calc(12px + env(safe-area-inset-bottom))}
+  .logo{padding:8px 10px}.logo img{max-width:280px}.logo.sm img{max-width:200px}
+  .cert{padding:24px 10px!important}.cert h1{font-size:1.5rem}.cert .nm{font-size:1.4rem;padding:0 8px}
+}
+@media print{.logo{display:none}}

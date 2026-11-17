@@ -92,7 +92,7 @@ function nav() {
 
 function vLogin() {
   const reg = ui.authMode === 'register';
-  return `<div class="card" style="max-width:420px;margin:24px auto"><h1>🏙️ Smart Integrity City</h1><h2>${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</h2>
+  return `<div class="card" style="max-width:420px;margin:24px auto"><div class="logo"><img src="assets/logo.png" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</h2>
     ${reg ? '<label>ชื่อ</label><input id="rName" autocomplete="name" placeholder="ชื่อของคุณ">' : ''}
     <label>อีเมล</label><input id="lEmail" type="email" autocomplete="email" placeholder="you@example.com">
     <label>${reg ? 'รหัสผ่าน (อย่างน้อย 6 ตัว)' : 'รหัสผ่าน / รหัสครู'}</label><input id="lCode" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}">
@@ -106,7 +106,7 @@ function vLogin() {
 function vHome() {
   const cur = me().roomCode && DB.rooms[me().roomCode];
   return `
-  <div class="card"><h1>Smart Integrity City</h1>
+  <div class="card"><div class="logo sm"><img src="assets/logo.png" alt="Smart Integrity City"></div>
     <p class="muted">สวัสดี ${esc(me().name)} — เลือกสิ่งที่ต้องการทำ</p></div>
   <div class="grid g2">
     <div class="card"><h3>สร้างห้อง</h3><p class="muted">เลือกสื่อการสอน แล้วลงทะเบียนผู้เล่น 6 คน</p><button data-act="create">สร้างห้อง</button></div>
