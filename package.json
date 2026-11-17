@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "serve -l 3000 .",
     "start": "serve -l 3000 .",
-    "build": "node test.js && node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.mkdirSync('dist',{recursive:true});for(const f of ['index.html','styles.css','data.js','core.js','app.js','live.js','config.js'])fs.copyFileSync(f,'dist/'+f);fs.cpSync('assets','dist/assets',{recursive:true});\"",
+    "build": "node test.js && node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.mkdirSync('dist',{recursive:true});for(const f of ['index.html','styles.css','data.js','core.js','app.js','live.js','cloud.js','config.js'])fs.copyFileSync(f,'dist/'+f);fs.cpSync('assets','dist/assets',{recursive:true});\"",
     "lint": "node -c data.js && node -c core.js && node -c app.js"
   },
   "dependencies": {

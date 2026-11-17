@@ -5,14 +5,15 @@
   let bc = null; try { bc = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('sic-live') : null; } catch (e) {}
   const local = {}; // ข้อมูลที่ได้รับผ่าน BroadcastChannel
   if (bc) bc.onmessage = (m) => { const d = m.data; if (d && d.id) { if (d.gone) delete local[d.id]; else local[d.id] = d; } };
-  const dbUrl = () => ((root.SIC_CONFIG && root.SIC_CONFIG.liveDb) || '').replace(/\/+$/, '');
+  const dbUrl = () => ((root.SIC_CONFIG && (root.SIC_CONFIG.liveDb || (root.SIC_CONFIG.firebase && root.SIC_CONFIG.firebase.databaseURL))) || '').replace(/\/+$/, '');
+  const authQ = async () => { try { const t = root.SicCloud && root.SicCloud.enabled() ? await root.SicCloud.token() : null; return t ? '?auth=' + encodeURIComponent(t) : ''; } catch (e) { return ''; } };
   let last = '', timer = null, pending = null;
 
   function send(state) { // state=null → ลบ
     const doc = state ? Object.assign({}, state, { id: cid, updatedAt: Date.now() }) : null;
     if (bc) bc.postMessage(doc || { id: cid, gone: true });
     const u = dbUrl(); if (!u || typeof fetch === 'undefined') return;
-    fetch(u + '/sic/live/' + cid + '.json', doc ? { method: 'PUT', body: JSON.stringify(doc) } : { method: 'DELETE' }).catch(() => {});
+    authQ().then((q) => fetch(u + '/sic/live/' + cid + '.json' + q, doc ? { method: 'PUT', body: JSON.stringify(doc) } : { method: 'DELETE' })).catch(() => {});
   }
   // เรียกทุกครั้งที่ข้อความ/หน้าจอเปลี่ยน (หน่วงเพื่อลดจำนวนคำขอ)
   function publish(state, immediate) {
@@ -27,11 +28,11 @@
   async function fetchAll() {
     const out = Object.assign({}, local), u = dbUrl();
     if (u && typeof fetch !== 'undefined') {
-      try { const r = await fetch(u + '/sic/live.json'); const j = await r.json(); if (j && typeof j === 'object') Object.assign(out, j); } catch (e) { out.__error = true; }
+      try { const r = await fetch(u + '/sic/live.json' + (await authQ())); const j = await r.json(); if (j && typeof j === 'object') Object.assign(out, j); } catch (e) { out.__error = true; }
     }
     return out;
   }
-  async function clearAll() { Object.keys(local).forEach((k) => delete local[k]); const u = dbUrl(); if (u) try { await fetch(u + '/sic/live.json', { method: 'DELETE' }); } catch (e) {} }
+  async function clearAll() { Object.keys(local).forEach((k) => delete local[k]); const u = dbUrl(); if (u) try { await fetch(u + '/sic/live.json' + (await authQ()), { method: 'DELETE' }); } catch (e) {} }
   const api = { cid, publish, heartbeat, fetchAll, clearAll, STALE_MS, mode: () => (dbUrl() ? 'remote' : 'local') };
   root.SicLive = api; if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
