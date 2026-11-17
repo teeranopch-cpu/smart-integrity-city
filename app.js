@@ -24,6 +24,9 @@ const loadDB = () => {
       if (!l.traits || typeof l.traits !== 'object' || TRAITS.some((tr) => !Array.isArray(l.traits[tr.id]) || l.traits[tr.id].length < 10 || typeof l.traits[tr.id][0] !== 'object' || !l.traits[tr.id][0].keys)) {
         l.traits = JSON.parse(JSON.stringify(DEFAULT_LESSON.traits));
       }
+      if (!Array.isArray(l.ethics) || l.ethics.length < 20 || !l.ethics[0] || !l.ethics[0].keys) {
+        l.ethics = JSON.parse(JSON.stringify(DEFAULT_LESSON.ethics));
+      }
     });
     return d;
   } catch { return initDB(); }
@@ -282,7 +285,7 @@ function vAct() {
     ? `<div class="q"><b>ตรวจความสอดคล้องกับแนวคำตอบ:</b> <span class="${a.ev.aligned ? 'good' : 'bad'}">${a.ev.aligned ? '✓ ' : '✗ '}${esc(a.ev.note)}</span></div>`
     : '';
   const ansHint = (a.qItem && a.qItem.ans)
-    ? `<details ${(a.kind === 'audit' || a.kind === 'civic' || a.kind === 'trait') ? 'open ' : ''}class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ / แนวทางเกณฑ์ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
+    ? `<details ${(a.kind === 'audit' || a.kind === 'civic' || a.kind === 'trait' || a.kind === 'ethics') ? 'open ' : ''}class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ / แนวทางเกณฑ์ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
     : '';
   return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text) || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>${alignBox}${ansHint}<div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
     <label>ยืนยันผลก่อนบันทึก (ผู้ควบคุมเกมแก้ไขได้)</label>${sel}
@@ -358,7 +361,7 @@ function vTeacher() {
   let body = '';
   if (ui.tTab === 'lessons' || ui.tTab === 'points') body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>`;
   if (ui.tTab === 'lessons') {
-    body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจตัวละคร 3 ขั้น (ขั้นละ 10 ข้อ ถูก/ผิด) ของ 6 ตัวละคร, คลังภารกิจช่วยเหลือ (60 สถานการณ์), คลังการ์ดคุณลักษณะ 5 ด้าน (50 การ์ด), คลังข้อสอบตรวจสอบ (60 ข้อ), คำสำคัญที่ใช้ตรวจ</p>
+    body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจตัวละคร 3 ขั้น (ขั้นละ 10 ข้อ ถูก/ผิด) ของ 6 ตัวละคร, คลังภารกิจช่วยเหลือ (60 สถานการณ์), คลังการ์ดคุณลักษณะ 5 ด้าน (50 การ์ด), คลังข้อสอบท้าทายจริยธรรม (20 ข้อ), คลังข้อสอบตรวจสอบ (60 ข้อ), คำสำคัญที่ใช้ตรวจ</p>
       <textarea id="lJson" style="min-height:420px;font-family:monospace;font-size:.8rem">${esc(JSON.stringify(L, null, 2))}</textarea>
       <p class="row"><button data-act="saveLesson">บันทึก</button><button class="alt" data-act="copyLesson">ทำสำเนาเป็นชุดใหม่</button><button class="danger" data-act="delLesson" ${DB.lessons.length < 2 ? 'disabled' : ''}>ลบชุดนี้</button></p>`;
   }
@@ -693,11 +696,21 @@ const H = {
       const title = (typeof it === 'object' && it.title) ? it.title : ('ช่องคุณลักษณะ: ' + traitName(a.trait));
       Object.assign(a, { title, q: qText, qItem: typeof it === 'string' ? null : it });
     }
-    // ช่องท้าทายจริยธรรม: สุ่มโจทย์จากข้อสอบ (Pre/Post) แล้วตรวจว่าคำตอบตรงกับแนวคำตอบของข้อสอบหรือไม่
+    // ช่องท้าทายจริยธรรม: สุ่มโจทย์ไม่ซ้ำจากคลังข้อสอบท้าทายจริยธรรม (20 ข้อ) แล้วตรวจว่าคำตอบตรงกับแนวคำตอบหรือไม่
     if (a.kind === 'ethics') {
-      const examPool = () => [...L.pretest, ...L.posttest];
-      const it = rnd(examPool());
-      Object.assign(a, { trait: it.trait, title: 'ช่องท้าทายจริยธรรม', q: it.q, qItem: it });
+      const bank = (Array.isArray(L.ethics) && L.ethics.length) ? L.ethics : DEFAULT_LESSON.ethics;
+      if (!Array.isArray(r.usedEthics)) r.usedEthics = [];
+      let pool = bank.map((item, idx) => ({ item, idx })).filter((x) => !r.usedEthics.includes(x.idx));
+      if (!pool.length) { r.usedEthics = []; pool = bank.map((item, idx) => ({ item, idx })); }
+      const pick = rnd(pool);
+      r.usedEthics = [...r.usedEthics, pick.idx];
+      const it = pick.item;
+      Object.assign(a, {
+        trait: it.t || it.trait || TRAITS[0].id,
+        title: it.title || 'ช่องท้าทายจริยธรรม',
+        q: it.q,
+        qItem: it.keys ? it : null,
+      });
     }
     Object.assign(a, { timed: true, stage: 'read' }); render();
   },
