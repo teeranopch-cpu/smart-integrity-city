@@ -104,3 +104,9 @@ table{max-width:100%}
   .cert{padding:24px 10px!important}.cert h1{font-size:1.5rem}.cert .nm{font-size:1.4rem;padding:0 8px}
 }
 @media print{.logo{display:none}}
+
+/* พื้นหลังเมือง เบลอและคลุมด้วยหมอกสีน้ำเงิน */
+body{background:var(--bg);position:relative;min-height:100vh}
+body::before{content:"";position:fixed;inset:-24px;z-index:-2;background:url(assets/bg.jpg) center/cover no-repeat;filter:blur(14px)}
+body::after{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(10,35,66,.66),rgba(10,35,66,.78) 60%,rgba(7,26,51,.9))}
+@media print{body::before,body::after{display:none}}
