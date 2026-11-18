@@ -14,7 +14,14 @@ var PLAYER_DEL = /^rooms\/[\w-]{1,20}\/p\/[\w-]{1,40}$/;
 function out_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function props_() { return PropertiesService.getScriptProperties(); }
 function secret_() { var p = props_(), s = p.getProperty('AUTH_SECRET'); if (!s) { s = Utilities.getUuid() + Utilities.getUuid(); p.setProperty('AUTH_SECRET', s); } return s; }
-function sheet_(name, header) { var ss = SpreadsheetApp.getActive(), sh = ss.getSheetByName(name); if (!sh) { sh = ss.insertSheet(name); if (header) sh.appendRow(header); } return sh; }
+// ใช้ได้ทั้งสคริปต์ที่ผูกกับชีต และสคริปต์เดี่ยว (script.new) — แบบเดี่ยวจะสร้างชีต "Smart Integrity City ข้อมูล" ให้เองครั้งแรก
+function ss_() {
+  var a = SpreadsheetApp.getActive(); if (a) return a;
+  var p = props_(), id = p.getProperty('SHEET_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  var n = SpreadsheetApp.create('Smart Integrity City ข้อมูล'); p.setProperty('SHEET_ID', n.getId()); return n;
+}
+function sheet_(name, header) { var ss = ss_(), sh = ss.getSheetByName(name); if (!sh) { sh = ss.insertSheet(name); if (header) sh.appendRow(header); } return sh; }
 function hex_(bytes) { return bytes.map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join(''); }
 function sha256_(s) { return hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s, Utilities.Charset.UTF_8)); }
 function hashPw_(pw, salt) { var h = salt + pw; for (var i = 0; i < ROUNDS; i++) h = sha256_(h + pw + salt); return h; }
