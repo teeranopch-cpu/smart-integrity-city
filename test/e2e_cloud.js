@@ -19,7 +19,7 @@ const srv = http.createServer((q, r) => { let b = ''; q.on('data', (d) => (b += 
   const urow = gas.sheets.users.rows.find((r) => r[0] === 'a@x.com'); assert(urow && urow[4] && urow[4] !== 'abcdef' && !JSON.stringify([gas.sheets.users.rows, gas.sheets.data && gas.sheets.data.rows]).includes('abcdef'), 'ต้องไม่มีรหัสผ่านตัวจริงใน Sheets'); console.log('register ok (password hashed)');
   await d1.evaluate(() => { DB.rooms.ROOM1 = { code: 'ROOM1', owner: 'น้องเอ', lessonId: DB.lessons[0].id, status: 'lobby', city: 100, cityStart: 100, log: [], players: [newPlayer('สมชาย', 'gov')] }; save(); });
   await d1.waitForFunction(() => SicCloud.status() === 'ok'); await d1.evaluate(() => SicCloud.sync());
-  const dr = (k) => (gas.sheets.data.rows.find((r) => r[0] === k) || []).slice(1).join('').slice(1); assert.strictEqual(dr('rooms/ROOM1/m/city'), '100'); console.log('room stored in Sheets; lessons untouched:', !gas.sheets.data.rows.some((r) => String(r[0]).startsWith('lessons/')));
+  const dr = (k) => (gas.sheets.data.rows.find((r) => r[0] === k) || []).slice(1).filter((c) => c !== '').map((c) => c.slice(1)).join(''); assert.strictEqual(dr('rooms/ROOM1/m/city'), '100'); console.log('room stored in Sheets; lessons untouched:', !gas.sheets.data.rows.some((r) => String(r[0]).startsWith('lessons/')));
   const d2 = await device();
   await d2.fill('#lEmail', 'a@x.com'); await d2.fill('#lCode', 'wrongpw'); await d2.click('[data-act=doLogin]'); await d2.waitForTimeout(600); console.log('wrong pw:', await toast(d2));
   await d2.fill('#lCode', 'abcdef'); await d2.click('[data-act=doLogin]');
