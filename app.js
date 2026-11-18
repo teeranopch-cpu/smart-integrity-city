@@ -375,6 +375,7 @@ function vTeacher() {
   }
   if (ui.tTab === 'export') {
     body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้อง</p>';
+    body += `<div class="card"><h3>สำรอง/กู้คืนข้อมูลทั้งหมด</h3><p class="muted">ข้อมูลอยู่ในเบราว์เซอร์เครื่องนี้ ถ้าล้างข้อมูลเบราว์เซอร์หรือเปลี่ยนเครื่องจะหาย ควรกดสำรองเก็บไว้เป็นไฟล์ (ห้อง คะแนน ผลสอบ รูปหลักฐาน สมาชิก ชุดสื่อ) แล้วนำเข้ากลับได้ทุกเมื่อ</p><div class="row"><button data-act="backup">ดาวน์โหลดไฟล์สำรอง</button><button class="alt" data-act="restorePick">กู้คืนจากไฟล์สำรอง</button><input type="file" id="restoreFile" accept="application/json,.json" style="display:none"></div></div>`;
   }
   if (ui.tTab === 'calib') {
     const sets = [['pretest', 'Pre-Test'], ['posttest', 'Post-Test']], cs = ui.cSet || 'pretest', ci = Math.min(ui.cIdx || 0, L[cs].length - 1), cq = L[cs][ci], th = Object.assign({}, SIM_DEFAULT, L.exam || {});
@@ -487,6 +488,13 @@ async function submitAnswer(auto) {
 }
 
 const H = {
+  backup: () => {
+    const d = Object.assign({}, DB, { session: null });
+    const blob = new Blob([JSON.stringify({ app: 'smart-integrity-city', savedAt: new Date().toISOString(), db: d })], { type: 'application/json' });
+    const el = document.createElement('a'); el.href = URL.createObjectURL(blob); el.download = 'smart-integrity-city-backup-' + new Date().toISOString().slice(0, 10) + '.json'; document.body.appendChild(el); el.click(); setTimeout(() => { URL.revokeObjectURL(el.href); el.remove(); }, 500);
+    try { localStorage.setItem('sic_last_backup', String(Date.now())); } catch (e) {} toast('ดาวน์โหลดไฟล์สำรองแล้ว');
+  },
+  restorePick: () => $('#restoreFile').click(),
   saveAlts: () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const cs = ui.cSet || 'pretest', i = ui.cIdx || 0; L[cs][i].alts = $('#cAlts').value.split('\n').map((x) => x.trim()).filter(Boolean); ui.cText = $('#cText').value; save(); toast('บันทึกแล้ว'); render(); },
   tryScore: () => { ui.cText = $('#cText').value; render(); },
   saveTh: () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const v = ['t1', 't2', 't3'].map((k) => +$('#' + k).value / 100); if (!(v[0] <= v[1] && v[1] <= v[2]) || v.some((x) => !(x >= 0 && x <= 1))) return toast('เกณฑ์ต้องเรียงจากน้อยไปมาก (0–100)'); L.exam = { t1: v[0], t2: v[1], t3: v[2] }; save(); toast('บันทึกเกณฑ์แล้ว'); render(); },
@@ -799,5 +807,20 @@ function startCloud() {
   });
 }
 function cloudLabel() { const s = window.SicCloud && SicCloud.status(); return !cloudOn() || !SicCloud.loggedIn() ? '' : s === 'ok' ? '☁ บันทึกออนไลน์แล้ว' : s === 'syncing' ? '☁ กำลังบันทึก…' : s === 'denied' ? '☁ ไม่มีสิทธิ์ (ตรวจ rules)' : s === 'offline' ? '☁ ออฟไลน์ (จะบันทึกเมื่อกลับมาออนไลน์)' : ''; }
+// ขอให้เบราว์เซอร์เก็บข้อมูลถาวร (ลดโอกาสถูกลบอัตโนมัติเมื่อพื้นที่เต็ม)
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'restoreFile' || !e.target.files[0]) return;
+  try {
+    const j = JSON.parse(await e.target.files[0].text()), d = j && j.db;
+    if (!d || j.app !== 'smart-integrity-city' || typeof d.rooms !== 'object' || !Array.isArray(d.lessons)) throw new Error('bad');
+    if (!confirm('กู้คืนจะนำห้อง/คะแนน/สมาชิก/ชุดสื่อจากไฟล์มาเพิ่ม (ถ้ารหัสห้องหรืออีเมลซ้ำ จะใช้ข้อมูลจากไฟล์) ดำเนินการต่อ?')) return;
+    Object.assign(DB.rooms, d.rooms);
+    (d.users || []).forEach((u) => { const i = DB.users.findIndex((x) => x.email === u.email); if (i >= 0) DB.users[i] = u; else DB.users.push(u); });
+    d.lessons.forEach((l) => { const i = DB.lessons.findIndex((x) => x.id === l.id); if (i >= 0) DB.lessons[i] = l; else DB.lessons.push(l); });
+    save(); toast('กู้คืนข้อมูลสำเร็จ'); render();
+  } catch (err) { toast('ไฟล์สำรองไม่ถูกต้อง'); }
+  e.target.value = '';
+});
 render();
 if (window.SicCloud) SicCloud.detect().then((on) => { if (on) { startCloud(); render(); } }).catch(() => {});
