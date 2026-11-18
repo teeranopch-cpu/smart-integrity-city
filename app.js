@@ -506,8 +506,8 @@ const H = {
     if (pw.length < 6) return toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัว');
     if (pw !== $('#rPw2').value) return toast('ยืนยันรหัสผ่านไม่ตรงกัน');
     if (TEACHER_CODE_HASHES.includes(await sha(pw))) return toast('รหัสผ่านนี้ใช้ไม่ได้ กรุณาตั้งรหัสอื่น');
-    if (cloudOn()) { // สมัครกับ Firebase Authentication (รหัสผ่านไม่ถูกเก็บในเครื่อง)
-      try { await SicCloud.signUp(email, pw); await SicCloud.profile(name, email); } catch (e) { return toast(SicCloud.thaiErr(e)); }
+    if (cloudOn()) { // สมัครกับเซิร์ฟเวอร์ (รหัสผ่านถูกแฮชแบบ scrypt ในฐานข้อมูล ไม่เก็บในเครื่อง)
+      try { await SicCloud.signUp(email, pw, name); } catch (e) { return toast(SicCloud.thaiErr(e)); }
       DB.session = { role: 'player', name, email }; save(); SicCloud.sync(); toast('สมัครสมาชิกสำเร็จ (บันทึกลงฐานข้อมูลออนไลน์แล้ว)'); return go('home', { authMode: 'login' });
     }
     if (DB.users.find((u) => u.email === email)) return toast('อีเมลนี้สมัครสมาชิกแล้ว');
@@ -518,16 +518,17 @@ const H = {
     const email = $('#lEmail').value.trim().toLowerCase(), pw = $('#lCode').value;
     if (!email || !pw) return toast('กรอกอีเมลและรหัสผ่าน');
     const h = await sha(pw);
-    if (cloudOn()) { // เข้าสู่ระบบด้วย Firebase Authentication
-      const isT = TEACHER_CODE_HASHES.includes(h), legacy = DB.users.find((x) => x.email === email && x.hash === h);
+    if (cloudOn()) { // เข้าสู่ระบบกับเซิร์ฟเวอร์ (สิทธิ์ครู/ผู้เล่นตัดสินโดยเซิร์ฟเวอร์)
+      const legacy = DB.users.find((x) => x.email === email && x.hash === h);
+      let r;
       try {
-        try { await SicCloud.signIn(email, pw); }
-        catch (e) { // ครูครั้งแรก หรือบัญชีเดิมที่สมัครไว้ในเครื่องก่อนเปิดระบบออนไลน์ → สร้างบัญชีออนไลน์ให้อัตโนมัติ
-          if ((isT || legacy) && /EMAIL_NOT_FOUND|INVALID_LOGIN_CREDENTIALS/.test(String(e.message))) { await SicCloud.signUp(email, pw); await SicCloud.profile(legacy ? legacy.name : email, email); } else throw e;
+        try { r = await SicCloud.signIn(email, pw); }
+        catch (e) { // บัญชีเดิมที่สมัครไว้ในเครื่องก่อนเปิดระบบออนไลน์ → ย้ายขึ้นออนไลน์อัตโนมัติ
+          if (legacy && /EMAIL_NOT_FOUND/.test(String(e.message))) r = await SicCloud.signUp(email, pw, legacy.name); else throw e;
         }
       } catch (e) { return toast(SicCloud.thaiErr(e)); }
-      const pr = await SicCloud.profileGet(), nm = (pr && pr.name) || (legacy && legacy.name) || email;
-      DB.session = { role: isT ? 'teacher' : 'player', name: nm, email }; save(); SicCloud.sync(); toast(isT ? 'เข้าสู่ระบบครูแล้ว' : 'เข้าสู่ระบบผู้เล่นแล้ว'); return go('home');
+      const isT = r.role === 'teacher';
+      DB.session = { role: isT ? 'teacher' : 'player', name: isT ? (legacy ? legacy.name : email) : r.name, email }; save(); SicCloud.sync(); toast(isT ? 'เข้าสู่ระบบครูแล้ว' : 'เข้าสู่ระบบผู้เล่นแล้ว'); return go('home');
     }
     if (TEACHER_CODE_HASHES.includes(h)) { // รหัสครู → เข้าสู่ระบบครู
       const u = DB.users.find((x) => x.email === email);
@@ -786,8 +787,9 @@ document.addEventListener('change', (e) => {
   ui[b] = e.target.value; if (b === 'tRoom' || b === 'slotRole' || b === 'slotTrait' || b === 'auditTarget') return; render();
 });
 
-// ===== ฐานข้อมูลออนไลน์ (Firebase) =====
-if (cloudOn()) {
+// ===== ฐานข้อมูลออนไลน์ (Vercel API + Redis) =====
+function startCloud() {
+  if (!cloudOn()) return;
   if (DB.session && !SicCloud.loggedIn()) { DB.session = null; try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} } // ต้องเข้าสู่ระบบใหม่เพื่อเชื่อมบัญชีออนไลน์
   SicCloud.start({
     getDB: () => DB,
@@ -797,3 +799,4 @@ if (cloudOn()) {
 }
 function cloudLabel() { const s = window.SicCloud && SicCloud.status(); return !cloudOn() || !SicCloud.loggedIn() ? '' : s === 'ok' ? '☁ บันทึกออนไลน์แล้ว' : s === 'syncing' ? '☁ กำลังบันทึก…' : s === 'denied' ? '☁ ไม่มีสิทธิ์ (ตรวจ rules)' : s === 'offline' ? '☁ ออฟไลน์ (จะบันทึกเมื่อกลับมาออนไลน์)' : ''; }
 render();
+if (window.SicCloud) SicCloud.detect().then((on) => { if (on) { startCloud(); render(); } }).catch(() => {});

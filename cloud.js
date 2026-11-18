@@ -1,11 +1,9 @@
-// เก็บข้อมูลสมาชิก/ห้อง/คะแนนไว้ใน Firebase (Authentication + Realtime Database) ผ่าน REST ไม่ต้องใช้ SDK
-// เปิดใช้เมื่อใส่ firebase.apiKey และ firebase.databaseURL ใน config.js ถ้าไม่ใส่ ระบบทำงานแบบเดิม (localStorage)
+// เก็บข้อมูลสมาชิก/ห้อง/คะแนนในฐานข้อมูลออนไลน์ผ่าน Vercel Serverless Functions (โฟลเดอร์ api/) + Upstash Redis
+// ตรวจอัตโนมัติว่าเซิร์ฟเวอร์ตั้งค่าครบหรือยัง (/api/health) ถ้ายัง/เปิดจากไฟล์ในเครื่อง ระบบจะทำงานแบบเดิม (localStorage)
 (function (root) {
-  const cfg = () => (root.SIC_CONFIG && root.SIC_CONFIG.firebase) || {};
-  const enabled = () => !!(cfg().apiKey && cfg().databaseURL);
-  const idHost = () => cfg().authHost || 'https://identitytoolkit.googleapis.com';
-  const tokHost = () => cfg().tokenHost || 'https://securetoken.googleapis.com';
-  const dbu = () => String(cfg().databaseURL || '').replace(/\/+$/, '');
+  const apiBase = () => ((root.SIC_CONFIG && root.SIC_CONFIG.apiBase) || '/api').replace(/\/+$/, '');
+  let available = false;
+  const enabled = () => available;
   const ls = { get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }, del: (k) => { try { localStorage.removeItem(k); } catch (e) {} } };
 
   let A = null; try { A = JSON.parse(ls.get('sic_auth')); } catch (e) {}
@@ -14,42 +12,38 @@
   const saveShadow = () => ls.set('sic_shadow', JSON.stringify(shadow));
   let status = 'idle', hooks = null, timer = null, busy = false, again = false, poll = null;
 
-  async function post(url, body, form) {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': form ? 'application/x-www-form-urlencoded' : 'application/json' }, body: form ? new URLSearchParams(body).toString() : JSON.stringify(body) });
+  async function detect() {
+    if (typeof fetch === 'undefined' || (typeof location !== 'undefined' && location.protocol === 'file:' && !(root.SIC_CONFIG && root.SIC_CONFIG.apiBase))) return false;
+    try { const c = new AbortController(), t = setTimeout(() => c.abort(), 3500); const r = await fetch(apiBase() + '/health', { signal: c.signal, cache: 'no-store' }); clearTimeout(t); const j = await r.json(); available = !!(j && j.ok && j.configured); } catch (e) { available = false; }
+    return available;
+  }
+  async function call(path, opt) {
+    const r = await fetch(apiBase() + path, Object.assign({ cache: 'no-store' }, opt, { headers: Object.assign({ 'Content-Type': 'application/json' }, A ? { Authorization: 'Bearer ' + A.token } : {}) }));
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((j.error && (j.error.message || j.error)) || 'HTTP ' + r.status);
+    if (r.status === 401 && A && path.startsWith('/db')) { A = null; saveA(); throw new Error('UNAUTHORIZED'); }
+    if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
     return j;
   }
-  function setAuth(j) {
-    A = { uid: j.localId || j.user_id || (A && A.uid), email: j.email || (A && A.email), idToken: j.idToken || j.id_token, refreshToken: j.refreshToken || j.refresh_token, exp: Date.now() + (+(j.expiresIn || j.expires_in || 3600)) * 1000 - 60000 };
-    saveA();
+  async function auth(action, email, password, name) {
+    const j = await call('/auth', { method: 'POST', body: JSON.stringify({ action, email, password, name }) });
+    A = { token: j.token, uid: j.uid, email: j.email, name: j.name, role: j.role }; saveA(); return j;
   }
-  const signUp = async (email, pw) => setAuth(await post(idHost() + '/v1/accounts:signUp?key=' + cfg().apiKey, { email, password: pw, returnSecureToken: true }));
-  const signIn = async (email, pw) => setAuth(await post(idHost() + '/v1/accounts:signInWithPassword?key=' + cfg().apiKey, { email, password: pw, returnSecureToken: true }));
-  async function token() {
-    if (!A) return null;
-    if (Date.now() > A.exp) { try { setAuth(await post(tokHost() + '/v1/token?key=' + cfg().apiKey, { grant_type: 'refresh_token', refresh_token: A.refreshToken }, true)); } catch (e) { if (/TOKEN_EXPIRED|INVALID_REFRESH_TOKEN|USER_NOT_FOUND|USER_DISABLED/.test(String(e.message))) { A = null; saveA(); } } }
-    return A ? A.idToken : null;
-  }
-  async function rq(method, path, body) {
-    const t = await token();
-    const r = await fetch(dbu() + '/' + path + '.json' + (t ? '?auth=' + encodeURIComponent(t) : ''), { method, body: body === undefined ? undefined : JSON.stringify(body) });
-    if (!r.ok) throw new Error('DB ' + r.status);
-    return r.json();
-  }
+  const signUp = (email, pw, name) => auth('signup', email, pw, name);
+  const signIn = (email, pw, name) => auth('login', email, pw, name);
+  const rq = async (method, path, body) => (method === 'GET' ? call('/db?path=' + encodeURIComponent(path)) : call('/db', { method: 'POST', body: JSON.stringify({ updates: body }) }));
   const thaiErr = (e) => {
     const m = String((e && e.message) || e);
     if (/EMAIL_EXISTS/.test(m)) return 'อีเมลนี้สมัครสมาชิกแล้ว';
-    if (/INVALID_LOGIN_CREDENTIALS|INVALID_PASSWORD|EMAIL_NOT_FOUND/.test(m)) return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
-    if (/WEAK_PASSWORD/.test(m)) return 'รหัสผ่านสั้นเกินไป (อย่างน้อย 6 ตัว)';
+    if (/INVALID_PASSWORD/.test(m)) return 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
+    if (/EMAIL_NOT_FOUND/.test(m)) return 'ไม่พบบัญชีนี้ (กด "สมัครสมาชิกใหม่")';
+    if (/WEAK_PASSWORD/.test(m)) return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัว';
     if (/INVALID_EMAIL/.test(m)) return 'รูปแบบอีเมลไม่ถูกต้อง';
-    if (/TOO_MANY_ATTEMPTS/.test(m)) return 'ลองหลายครั้งเกินไป กรุณารอสักครู่';
-    if (/OPERATION_NOT_ALLOWED/.test(m)) return 'ยังไม่ได้เปิด Email/Password ใน Firebase Authentication';
-    if (/Failed to fetch|NetworkError|network/i.test(m)) return 'เชื่อมต่ออินเทอร์เน็ต/ฐานข้อมูลไม่ได้';
+    if (/NOT_CONFIGURED/.test(m)) return 'เซิร์ฟเวอร์ยังตั้งค่าฐานข้อมูลไม่ครบ';
+    if (/Failed to fetch|NetworkError|network|abort/i.test(m)) return 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้';
     return 'เกิดข้อผิดพลาด: ' + m;
   };
 
-  // ===== ซิงก์ข้อมูล: ทุกฟิลด์เก็บเป็นสตริง JSON เพื่อเลี่ยงปัญหาอาร์เรย์/ค่าว่างของ Realtime Database =====
+// ===== ซิงก์ข้อมูล: ทุกฟิลด์เก็บเป็นสตริง JSON เพื่อเลี่ยงปัญหาอาร์เรย์/ค่าว่างของ Realtime Database =====
   // เทียบ 3 ทาง (ค่าในเครื่อง / ค่าที่ซิงก์ล่าสุด / ค่าบนเซิร์ฟเวอร์): แก้ในเครื่อง → ส่งขึ้น, แก้จากเครื่องอื่น → ดึงลง, ชนกัน → ค่าในเครื่องชนะ
   const js = (v) => (v === undefined ? undefined : JSON.stringify(v));
   function reconcile(path, R, getL, setL, push) {
@@ -101,14 +95,14 @@
       else if (!ll.id) DB.lessons.splice(idx, 1);
     }
     const body = Object.assign({}, push); del.forEach((d) => { body[d] = null; });
-    if (Object.keys(body).length) await rq('PATCH', '', body);
+    if (Object.keys(body).length) await rq('POST', '', body);
     saveShadow();
     if (changed && hooks.onRemote) hooks.onRemote();
   }
   async function sync() {
     if (busy) { again = true; return; }
     busy = true; status = 'syncing';
-    try { await syncOnce(); status = 'ok'; } catch (e) { status = /DB 401|DB 403/.test(String(e.message)) ? 'denied' : 'offline'; }
+    try { await syncOnce(); status = 'ok'; } catch (e) { status = /UNAUTHORIZED/.test(String(e.message)) ? 'denied' : 'offline'; }
     busy = false; if (hooks && hooks.onStatus) hooks.onStatus(status);
     if (again) { again = false; schedule(); }
   }
@@ -118,10 +112,8 @@
     clearInterval(poll); poll = setInterval(() => { if (A && (typeof document === 'undefined' || !document.hidden)) sync(); }, 5000);
     if (A) sync();
   }
-  async function profile(name, email) { await rq('PUT', 'users/' + A.uid, { name, email }); }
-  async function profileGet() { try { return await rq('GET', 'users/' + A.uid); } catch (e) { return null; } }
   function logout() { A = null; saveA(); shadow = {}; ls.del('sic_shadow'); status = 'idle'; }
 
-  root.SicCloud = { enabled, loggedIn: () => !!A, uid: () => A && A.uid, email: () => A && A.email, signUp, signIn, token, profile, profileGet, logout, sync, schedule, start, thaiErr, status: () => status };
+  root.SicCloud = { enabled, loggedIn: () => !!A, uid: () => A && A.uid, email: () => A && A.email, detect, signUp, signIn, session: () => A, logout, sync, schedule, start, thaiErr, status: () => status };
   if (typeof module !== 'undefined') module.exports = root.SicCloud;
 })(typeof window !== 'undefined' ? window : globalThis);
