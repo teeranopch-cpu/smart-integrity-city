@@ -328,7 +328,7 @@ function vPost() {
   let body = '';
   if (ui.tab === 'mission') {
     body = `<p class="${over ? 'bad' : 'muted'}">${over ? 'หมดเวลา 3 วัน — ระบบตัดสิทธิ์การส่งภารกิจแล้ว' : 'ส่งภายใน ' + new Date(deadline).toLocaleString('th-TH')}</p>` +
-      TRAITS.map((t) => { const e = p.evidence[t.id]; return `<div class="card"><b>${t.name}</b>${e ? `<div class="row"><img class="ev" src="${e.img}" alt=""><div>${esc(e.desc)}<br><span class="pill">${{ pending: 'รอตรวจ', approved: 'ผ่าน', rejected: 'ไม่ผ่าน' }[e.status]}</span> <span class="muted">AI เบื้องต้น: ${{ pass: 'เข้าข่าย', fail: 'ไม่ชัดเจน', corrupt: 'น่าสงสัย' }[e.ai]}</span></div></div>` : ''}
+      TRAITS.map((t) => { const e = p.evidence[t.id]; return `<div class="card"><b>${t.name}</b>${e ? `<div class="row"><a href="${esc(e.img)}" target="_blank" rel="noopener"><img class="ev" src="${esc(e.img)}" alt=""></a><div>${esc(e.desc)}<br><span class="pill">${{ pending: 'รอตรวจ', approved: 'ผ่าน', rejected: 'ไม่ผ่าน' }[e.status]}</span> <span class="muted">AI เบื้องต้น: ${{ pass: 'เข้าข่าย', fail: 'ไม่ชัดเจน', corrupt: 'น่าสงสัย' }[e.ai]}</span></div></div>` : ''}
         ${over && !e ? '' : e && e.status !== 'rejected' ? '' : `<label>อัปโหลดภาพ</label><input type="file" accept="image/*" data-ev="${t.id}"><label>คำอธิบายสิ่งที่ทำ</label><textarea data-evd="${t.id}"></textarea><p><button data-act="sendEv" data-t="${t.id}">ส่งหลักฐาน</button></p>`}</div>`; }).join('');
   }
   if (ui.tab === 'post') {
@@ -749,8 +749,9 @@ const H = {
     if (Date.now() > r.endedAt + 3 * 864e5) return toast('หมดเวลา 3 วัน ถูกตัดสิทธิ์แล้ว');
     const f = document.querySelector(`[data-ev=${t}]`).files[0], desc = document.querySelector(`[data-evd=${t}]`).value.trim();
     if (!f || !desc) return toast('ต้องมีทั้งรูปและคำอธิบาย');
-    const img = await fileToDataURL(f), ai = (await evaluate(desc, L, 'evidence')).verdict;
-    p.evidence[t] = { img, desc, ai, status: 'pending', at: Date.now() }; save(); toast('ส่งหลักฐานแล้ว รอครูตรวจ'); render();
+    let img = await fileToDataURL(f), imgId = null; const ai = (await evaluate(desc, L, 'evidence')).verdict;
+    if (cloudOn() && SicCloud.loggedIn()) { try { toast('กำลังอัปโหลดรูปไปที่ Google Drive…'); const up = await SicCloud.upload(img, (p.name || 'player') + '_' + t); img = up.url; imgId = up.id; } catch (e) { /* อัปโหลดไม่ได้ → เก็บรูปในข้อมูลแทน */ } }
+    p.evidence[t] = { img, imgId, desc, ai, status: 'pending', at: Date.now() }; save(); toast('ส่งหลักฐานแล้ว รอครูตรวจ'); render();
   },
   print: () => window.print(),
   tTab: (b) => go('teacher', { tTab: b.dataset.t }),

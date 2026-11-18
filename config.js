@@ -1,3 +1,4 @@
-// ค่าตั้งค่า (ปกติไม่ต้องแก้) ฐานข้อมูลออนไลน์ตั้งค่าที่ Vercel (ดู README) ระบบตรวจอัตโนมัติว่าเซิร์ฟเวอร์พร้อมหรือยัง
-// apiBase: ที่อยู่ API (ค่าเริ่มต้น '/api' = เว็บเดียวกัน)
-window.SIC_CONFIG = { apiBase: '/api', aiEndpoint: '' };
+// ค่าตั้งค่า
+// sheetsUrl: ที่อยู่ Web app ของ Google Apps Script (ลงท้าย /exec) เพื่อเก็บสมาชิก/ห้อง/คะแนนใน Google Sheets และรูปใน Google Drive (ดู README)
+//            ปล่อยว่าง = เก็บในเบราว์เซอร์เครื่องนี้เหมือนเดิม
+window.SIC_CONFIG = { sheetsUrl: '', aiEndpoint: '' };
