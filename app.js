@@ -356,7 +356,7 @@ function vPost() {
 // ===== หลังบ้านครู =====
 function vTeacher() {
   if (!isTeacher()) return vHome();
-  const tabs = [['lessons', 'สื่อการสอน'], ['points', 'ตารางแต้มกลาง'], ['review', 'ตรวจภารกิจชีวิตจริง'], ['export', 'ส่งออก Excel'], ['live', 'ดูสด'], ['calib', 'ทดลองตรวจ/แนวคำตอบ']];
+  const tabs = [['lessons', 'สื่อการสอน'], ['points', 'ตารางแต้มกลาง'], ['review', 'ตรวจภารกิจชีวิตจริง'], ['export', 'ส่งออก Excel'], ['calib', 'ทดลองตรวจ/แนวคำตอบ']];
   if (!ui.lessonId || !DB.lessons.find((l) => l.id === ui.lessonId)) ui.lessonId = DB.lessons[0].id;
   const L = DB.lessons.find((l) => l.id === ui.lessonId), mine = Object.values(DB.rooms);
   let body = '';
@@ -376,9 +376,6 @@ function vTeacher() {
   if (ui.tTab === 'export') {
     body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้อง</p>';
   }
-  if (ui.tTab === 'live') {
-    body += `<p class="muted">แสดงสิ่งที่ผู้เรียนกำลังพิมพ์ แบบเรียลไทม์ (อัปเดตทุก ~2 วินาที) · โหมด: <b>${window.SicLive.mode() === 'remote' ? 'ข้ามเครื่อง (ฐานข้อมูลออนไลน์)' : 'เครื่อง/เบราว์เซอร์เดียวกันเท่านั้น'}</b>${window.SicLive.mode() === 'remote' ? '' : '<br>ถ้านักเรียนใช้เครื่องอื่น ต้องตั้งค่า liveDb ใน config.js (ดู README)'}</p><p><button class="alt" data-act="liveClear">ล้างรายการ</button></p><div id="liveBox"><p class="muted">กำลังโหลด...</p></div>`;
-  }
   if (ui.tTab === 'calib') {
     const sets = [['pretest', 'Pre-Test'], ['posttest', 'Post-Test']], cs = ui.cSet || 'pretest', ci = Math.min(ui.cIdx || 0, L[cs].length - 1), cq = L[cs][ci], th = Object.assign({}, SIM_DEFAULT, L.exam || {});
     let res = '';
@@ -396,43 +393,12 @@ function vTeacher() {
 
 const VIEWS = { home: vHome, login: vLogin, create: vCreate, lobby: vLobby, pretest: vPretest, game: vGame, end: vEnd, joinPost: vJoinPost, post: vPost, teacher: vTeacher };
 
-// ===== ดูสด: สถานะที่ส่งให้ครู =====
-function liveState() {
-  const p = me(); if (!p || isTeacher()) return null;
-  const base = { user: p.name || p.email || '' };
-  const P = ui.view === 'pretest' ? ui.pre : ui.view === 'post' ? ui.post : null;
-  if (P && P.phase) {
-    const L = lessonOf(room()), items = ui.view === 'pretest' ? L.pretest : L.posttest, q = items[P.i];
-    return Object.assign(base, { room: ui.code || '', who: base.user, screen: ui.view === 'pretest' ? 'Pre-Test' : 'Post-Test', stage: P.phase, qi: P.i + 1, qn: items.length, q: q ? q.q : '', text: String(P.ans[P.i] || '').slice(0, 2000), startedAt: P.startedAt || 0, limitSec: PRE_MS / 1000 });
-  }
-  const a = ui.act;
-  if (ui.view === 'game' && a && a.stage && a.stage !== 'setup') {
-    const r = room(), pl = r && r.players.find((x) => x.id === a.pid);
-    return Object.assign(base, { room: ui.code || '', who: pl ? pl.name : base.user, screen: 'กิจกรรมในเกม: ' + a.kind, stage: a.stage, qi: 0, qn: 0, q: (a.q && (a.q.q || a.q.text || a.q)) || a.prompt || '', text: String(a.text || '').slice(0, 2000), startedAt: a.startedAt || 0, limitSec: MISSION_MS / 1000 });
-  }
-  return Object.assign(base, { room: ui.code || '', who: base.user, screen: ui.view, stage: '', qi: 0, qn: 0, q: '', text: '', startedAt: 0, limitSec: 0 });
-}
-function livePush(immediate) { if (window.SicLive) try { window.SicLive.publish(liveState(), immediate); } catch (e) {} }
 
-// ===== ดูสด (ฝั่งครู) =====
-const esc2 = (s) => esc(String(s == null ? '' : s));
-async function liveRefresh() {
-  const box = $('#liveBox'); if (!box || ui.view !== 'teacher' || ui.tTab !== 'live') return;
-  const all = await window.SicLive.fetchAll(), now = Date.now();
-  const rows = Object.values(all).filter((x) => x && x.id).sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0));
-  const b2 = $('#liveBox'); if (!b2) return;
-  b2.innerHTML = (all.__error ? '<p class="bad">เชื่อมต่อฐานข้อมูลไม่ได้</p>' : '') + (rows.length ? rows.map((x) => {
-    const age = Math.max(0, Math.round((now - (x.updatedAt || 0)) / 1000)), off = now - (x.updatedAt || 0) > window.SicLive.STALE_MS;
-    let t = ''; if (x.startedAt && x.limitSec && x.stage === 'answer') t = ' · เหลือ ' + Math.max(0, Math.round(x.limitSec - (now - x.startedAt) / 1000)) + ' วิ';
-    return `<div class="card" style="${off ? 'opacity:.5' : ''}"><div class="row"><b>${esc2(x.who)}</b><span class="pill">ห้อง ${esc2(x.room) || '-'}</span><span class="pill">${esc2(x.screen)}${x.qn ? ' ข้อ ' + x.qi + '/' + x.qn : ''}${x.stage ? ' · ' + esc2(x.stage) : ''}</span><span class="muted">${off ? 'ออฟไลน์/หยุดส่ง ' : 'อัปเดต '}${age} วิที่แล้ว${t}</span></div>${x.q ? `<div class="muted">โจทย์: ${esc2(x.q)}</div>` : ''}<div class="q">${x.text ? esc2(x.text) : '<span class="muted">(ยังไม่ได้พิมพ์)</span>'}</div></div>`;
-  }).join('') : '<p class="muted">ยังไม่มีผู้เรียนที่กำลังทำอยู่</p>');
-}
-setInterval(liveRefresh, 2000);
 function render() {
   if (!me()) ui.view = 'login';
   else if (ui.view === 'login') ui.view = 'home';
   if (ui.view === 'teacher' && !isTeacher()) ui.view = 'home';
-  nav(); $('#app').innerHTML = VIEWS[ui.view](); tick(); livePush(true); liveRefresh();
+  nav(); $('#app').innerHTML = VIEWS[ui.view](); tick();
 }
 
 // ===== นาฬิกา =====
@@ -458,7 +424,6 @@ function tick() {
   }
 }
 setInterval(tick, 250);
-setInterval(() => { if (window.SicLive) { const s = liveState(); if (s) window.SicLive.heartbeat(s); } }, 4000);
 
 // ===== เหตุการณ์ =====
 const newCode = () => { let c; do { c = Array.from({ length: 4 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join(''); } while (DB.rooms[c]); return c; };
@@ -522,7 +487,6 @@ async function submitAnswer(auto) {
 }
 
 const H = {
-  liveClear: async () => { await window.SicLive.clearAll(); liveRefresh(); },
   saveAlts: () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const cs = ui.cSet || 'pretest', i = ui.cIdx || 0; L[cs][i].alts = $('#cAlts').value.split('\n').map((x) => x.trim()).filter(Boolean); ui.cText = $('#cText').value; save(); toast('บันทึกแล้ว'); render(); },
   tryScore: () => { ui.cText = $('#cText').value; render(); },
   saveTh: () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const v = ['t1', 't2', 't3'].map((k) => +$('#' + k).value / 100); if (!(v[0] <= v[1] && v[1] <= v[2]) || v.some((x) => !(x >= 0 && x <= 1))) return toast('เกณฑ์ต้องเรียงจากน้อยไปมาก (0–100)'); L.exam = { t1: v[0], t2: v[1], t3: v[2] }; save(); toast('บันทึกเกณฑ์แล้ว'); render(); },
@@ -815,7 +779,6 @@ document.addEventListener('input', (e) => {
   const b = e.target.dataset && e.target.dataset.bind;
   if (b === 'examAns') { const P = e.target.dataset.k === 'post' ? ui.post : ui.pre; if (P) P.ans[+e.target.dataset.i] = e.target.value; }
   if (b === 'actText' && ui.act) ui.act.text = e.target.value;
-  if (b === 'examAns' || b === 'actText') livePush();
 });
 document.addEventListener('change', (e) => {
   const b = e.target.dataset && e.target.dataset.bind; if (!b || b === 'examAns' || b === 'actText') return;
