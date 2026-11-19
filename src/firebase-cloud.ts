@@ -1,14 +1,5 @@
 import { initializeApp } from 'firebase/app';
 import {
-  getAuth,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile,
-  signOut,
-  onAuthStateChanged,
-  User,
-} from 'firebase/auth';
-import {
   getFirestore,
   doc,
   collection,
@@ -55,9 +46,30 @@ export interface FirestoreErrorInfo {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
 
-const BOOTSTRAP_ADMIN_EMAIL = 'teeranop.ch@gmail.com';
+const SESS_UID_KEY = 'sic_cloud_uid';
+
+export interface CloudSession {
+  uid: string;
+  name: string;
+  role: 'player' | 'teacher';
+  roomCode: string;
+}
+
+export interface CloudHooks {
+  getDB: () => any;
+  onAuth: (session: CloudSession | null) => void;
+  onRemote: () => void;
+  onStatus: (status: string) => void;
+}
+
+let hooks: CloudHooks | null = null;
+let currentSession: CloudSession | null = null;
+let ready = false;
+let cloudStatus: 'idle' | 'syncing' | 'ok' | 'denied' | 'offline' = 'idle';
+let unsubs: Unsubscribe[] = [];
+const roomSubUnsubs = new Map<string, Unsubscribe[]>();
+const fetchedLessons = new Set<string>();
 
 export function handleFirestoreError(
   error: unknown,
@@ -67,16 +79,12 @@ export function handleFirestoreError(
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo:
-        auth.currentUser?.providerData?.map((provider) => ({
-          providerId: provider.providerId,
-          email: provider.email,
-        })) || [],
+      userId: currentSession?.uid || null,
+      email: null,
+      emailVerified: null,
+      isAnonymous: false,
+      tenantId: null,
+      providerInfo: [],
     },
     operationType,
     path,
@@ -94,31 +102,6 @@ async function testConnection(): Promise<void> {
     }
   }
 }
-
-export interface CloudSession {
-  uid: string;
-  email: string;
-  name: string;
-  role: 'player' | 'teacher';
-  roomCode: string;
-  isAdmin: boolean;
-}
-
-export interface CloudHooks {
-  getDB: () => any;
-  onAuth: (session: CloudSession | null) => void;
-  onRemote: () => void;
-  onStatus: (status: string) => void;
-}
-
-let hooks: CloudHooks | null = null;
-let currentSession: CloudSession | null = null;
-let ready = false;
-let authBusyDepth = 0;
-let cloudStatus: 'idle' | 'syncing' | 'ok' | 'denied' | 'offline' = 'idle';
-let unsubs: Unsubscribe[] = [];
-const roomSubUnsubs = new Map<string, Unsubscribe[]>();
-const fetchedLessons = new Set<string>();
 
 function setStatus(s: 'idle' | 'syncing' | 'ok' | 'denied' | 'offline') {
   cloudStatus = s;
@@ -152,14 +135,36 @@ function sanitizeName(name: string | null | undefined, fallback = 'ผู้เ�
   return (s || fallback).slice(0, 80);
 }
 
-async function nameToAuthEmail(username: string): Promise<string> {
+async function shaHex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function nameToUserId(username: string): Promise<string> {
   const norm = String(username || '').trim().toLowerCase();
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(norm));
-  const hex = [...new Uint8Array(buf)]
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-    .slice(0, 24);
-  return `u_${hex}@sic.app`;
+  const hex = await shaHex('sic_user:' + norm);
+  return 'u_' + hex.slice(0, 28);
+}
+
+async function hashPassword(uid: string, password: string): Promise<string> {
+  return shaHex(uid + ':' + password);
+}
+
+function saveSessionUid(uid: string | null) {
+  try {
+    if (uid) localStorage.setItem(SESS_UID_KEY, uid);
+    else localStorage.removeItem(SESS_UID_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function getSavedSessionUid(): string | null {
+  try {
+    return localStorage.getItem(SESS_UID_KEY);
+  } catch {
+    return null;
+  }
 }
 
 function sanitizeRoomForSave(room: any, ownerUid: string, ownerName: string) {
@@ -515,53 +520,106 @@ function startListeners(session: CloudSession) {
   }
 }
 
-async function resolveUserProfile(user: User, preferredName?: string, teacherSecret?: string): Promise<CloudSession> {
-  const uid = user.uid;
-  const email = (user.email || '').trim();
-  const isBootstrapAdmin = user.emailVerified && email.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL;
-
-  let hasAdminDoc = false;
-  if (!isBootstrapAdmin) {
-    try {
-      const adminSnap = await getDoc(doc(db, 'admins', uid));
-      hasAdminDoc = adminSnap.exists();
-    } catch {
-      hasAdminDoc = false;
-    }
+async function init(h: CloudHooks) {
+  hooks = h;
+  testConnection();
+  const savedUid = getSavedSessionUid();
+  if (!savedUid) {
+    ready = true;
+    setStatus('idle');
+    if (hooks?.onAuth) hooks.onAuth(null);
+    return;
   }
-
-  if (!isBootstrapAdmin && !hasAdminDoc && teacherSecret) {
-    try {
-      await setDoc(doc(db, 'admins', uid), {
-        uid,
-        teacherCode: teacherSecret.slice(0, 64),
-        createdAt: serverTimestamp(),
-      });
-      hasAdminDoc = true;
-    } catch {
-      hasAdminDoc = false;
-    }
-  }
-
-  const isAdminUser = isBootstrapAdmin || hasAdminDoc;
-  const userRef = doc(db, 'users', uid);
-  let userSnap;
+  setStatus('syncing');
   try {
-    userSnap = await getDoc(userRef);
+    const snap = await getDoc(doc(db, 'users', savedUid));
+    ready = true;
+    if (!snap.exists()) {
+      saveSessionUid(null);
+      currentSession = null;
+      setStatus('idle');
+      if (hooks?.onAuth) hooks.onAuth(null);
+      return;
+    }
+    const d = snap.data();
+    const sess: CloudSession = {
+      uid: d.uid,
+      name: sanitizeName(d.name),
+      role: d.role === 'teacher' ? 'teacher' : 'player',
+      roomCode: String(d.roomCode || ''),
+    };
+    currentSession = sess;
+    startListeners(sess);
+    setStatus('ok');
+    if (hooks?.onAuth) hooks.onAuth(sess);
+  } catch (err) {
+    ready = true;
+    console.error(err);
+    setStatus('offline');
+    if (hooks?.onAuth) hooks.onAuth(null);
+  }
+}
+
+async function registerWithName(username: string, password: string): Promise<CloudSession> {
+  const cleanName = sanitizeName(username);
+  const uid = await nameToUserId(cleanName);
+  const pwHash = await hashPassword(uid, password);
+  const ref = doc(db, 'users', uid);
+  let snap;
+  try {
+    snap = await getDoc(ref);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+  }
+  if (snap.exists()) throw new Error('USER_EXISTS');
+
+  try {
+    await setDoc(ref, {
+      uid,
+      name: cleanName,
+      passwordHash: pwHash,
+      role: 'player',
+      roomCode: '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `users/${uid}`);
+  }
+
+  const sess: CloudSession = { uid, name: cleanName, role: 'player', roomCode: '' };
+  currentSession = sess;
+  saveSessionUid(uid);
+  ready = true;
+  startListeners(sess);
+  setStatus('ok');
+  return sess;
+}
+
+async function loginWithName(username: string, password: string, isTeacherCode = false): Promise<CloudSession> {
+  const cleanName = sanitizeName(username);
+  const uid = await nameToUserId(cleanName);
+  const pwHash = await hashPassword(uid, password);
+  const ref = doc(db, 'users', uid);
+  let snap;
+  try {
+    snap = await getDoc(ref);
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, `users/${uid}`);
   }
 
-  let name = sanitizeName(preferredName || user.displayName || 'ผู้เล่น');
-  let role: 'player' | 'teacher' = isAdminUser ? 'teacher' : 'player';
+  let role: 'player' | 'teacher' = isTeacherCode ? 'teacher' : 'player';
+  let displayName = cleanName;
   let roomCode = '';
 
-  if (!userSnap.exists()) {
+  if (!snap.exists()) {
+    if (!isTeacherCode) throw new Error('USER_NOT_FOUND');
     try {
-      await setDoc(userRef, {
+      await setDoc(ref, {
         uid,
-        name,
-        role,
+        name: cleanName,
+        passwordHash: pwHash,
+        role: 'teacher',
         roomCode: '',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -570,141 +628,34 @@ async function resolveUserProfile(user: User, preferredName?: string, teacherSec
       handleFirestoreError(error, OperationType.CREATE, `users/${uid}`);
     }
   } else {
-    const data = userSnap.data();
-    name = sanitizeName(data.name || name);
+    const data = snap.data();
+    if (data.passwordHash !== pwHash) throw new Error('INVALID_PASSWORD');
+    displayName = sanitizeName(data.name || cleanName);
     roomCode = String(data.roomCode || '');
-    const desiredRole: 'player' | 'teacher' = isAdminUser ? 'teacher' : data.role === 'teacher' ? 'teacher' : 'player';
-    if (isAdminUser && data.role !== 'teacher') {
+    role = isTeacherCode || data.role === 'teacher' ? 'teacher' : 'player';
+    if (role === 'teacher' && data.role !== 'teacher') {
       try {
-        await updateDoc(userRef, { role: 'teacher', updatedAt: serverTimestamp() });
+        await updateDoc(ref, { role: 'teacher', updatedAt: serverTimestamp() });
       } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
       }
     }
-    role = desiredRole;
   }
 
-  if (email) {
-    const privRef = doc(db, 'users', uid, 'private', 'info');
-    try {
-      const privSnap = await getDoc(privRef);
-      if (!privSnap.exists()) {
-        await setDoc(privRef, {
-          uid,
-          email: email.slice(0, 200),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      } else if (privSnap.data()?.email !== email) {
-        await updateDoc(privRef, {
-          email: email.slice(0, 200),
-          updatedAt: serverTimestamp(),
-        });
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `users/${uid}/private/info`);
-    }
-  }
-
-  return { uid, email, name, role, roomCode, isAdmin: isAdminUser };
-}
-
-function init(h: CloudHooks) {
-  hooks = h;
-  testConnection();
-  onAuthStateChanged(auth, async (user) => {
-    if (authBusyDepth > 0) return;
-    ready = true;
-    if (!user) {
-      currentSession = null;
-      clearSubscriptions();
-      setStatus('idle');
-      if (hooks?.onAuth) hooks.onAuth(null);
-      return;
-    }
-    setStatus('syncing');
-    try {
-      const sess = await resolveUserProfile(user);
-      currentSession = sess;
-      startListeners(sess);
-      setStatus('ok');
-      if (hooks?.onAuth) hooks.onAuth(sess);
-    } catch (err) {
-      console.error(err);
-      setStatus('denied');
-      if (hooks?.onAuth) hooks.onAuth(null);
-    }
-  });
-}
-
-async function registerWithName(username: string, password: string): Promise<CloudSession> {
-  const cleanName = sanitizeName(username);
-  const authEmail = await nameToAuthEmail(cleanName);
-  authBusyDepth++;
-  try {
-    const cred = await createUserWithEmailAndPassword(auth, authEmail, password);
-    try {
-      await updateProfile(cred.user, { displayName: cleanName });
-    } catch {
-      /* ignore displayName error */
-    }
-    const sess = await resolveUserProfile(cred.user, cleanName);
-    currentSession = sess;
-    ready = true;
-    startListeners(sess);
-    setStatus('ok');
-    return sess;
-  } finally {
-    authBusyDepth = Math.max(0, authBusyDepth - 1);
-  }
-}
-
-async function loginWithName(username: string, password: string, isTeacherCode = false): Promise<CloudSession> {
-  const cleanName = sanitizeName(username);
-  const authEmail = await nameToAuthEmail(cleanName);
-  authBusyDepth++;
-  try {
-    let user: User;
-    try {
-      const cred = await signInWithEmailAndPassword(auth, authEmail, password);
-      user = cred.user;
-    } catch (err: any) {
-      const code = String(err?.code || err?.message || '');
-      if (isTeacherCode && /user-not-found|invalid-credential|invalid-login-credentials/i.test(code)) {
-        try {
-          const cred = await createUserWithEmailAndPassword(auth, authEmail, password);
-          try {
-            await updateProfile(cred.user, { displayName: cleanName });
-          } catch {
-            /* ignore */
-          }
-          user = cred.user;
-        } catch (createErr: any) {
-          if (/email-already-in-use/i.test(String(createErr?.code || createErr?.message || ''))) {
-            throw err;
-          }
-          throw createErr;
-        }
-      } else {
-        throw err;
-      }
-    }
-    const sess = await resolveUserProfile(user, cleanName, isTeacherCode ? password : undefined);
-    currentSession = sess;
-    ready = true;
-    startListeners(sess);
-    setStatus('ok');
-    return sess;
-  } finally {
-    authBusyDepth = Math.max(0, authBusyDepth - 1);
-  }
+  const sess: CloudSession = { uid, name: displayName, role, roomCode };
+  currentSession = sess;
+  saveSessionUid(uid);
+  ready = true;
+  startListeners(sess);
+  setStatus('ok');
+  return sess;
 }
 
 async function logout(): Promise<void> {
   clearSubscriptions();
   currentSession = null;
+  saveSessionUid(null);
   setStatus('idle');
-  await signOut(auth);
 }
 
 async function updateDisplayName(name: string): Promise<string> {
@@ -1135,41 +1086,38 @@ async function deleteLesson(lessonId: string): Promise<void> {
   }
 }
 
-async function grantTeacherAdmin(targetUid: string): Promise<void> {
+async function grantTeacherAdmin(nameOrUid: string): Promise<void> {
   if (!currentSession) return;
-  const cleanUid = String(targetUid || '').trim().slice(0, 128);
-  if (!/^[a-zA-Z0-9_-]+$/.test(cleanUid)) throw new Error('INVALID_UID');
-  const adminPath = `admins/${cleanUid}`;
+  const raw = String(nameOrUid || '').trim();
+  if (!raw) throw new Error('INVALID_UID');
+  const targetUid = /^u_[a-f0-9]{28}$/.test(raw) ? raw : await nameToUserId(raw);
+  const userRef = doc(db, 'users', targetUid);
+  let snap;
   try {
-    await setDoc(doc(db, 'admins', cleanUid), {
-      uid: cleanUid,
-      grantedBy: currentSession.uid,
-      createdAt: serverTimestamp(),
-    });
-    const userRef = doc(db, 'users', cleanUid);
-    const userSnap = await getDoc(userRef);
-    if (userSnap.exists()) {
-      await updateDoc(userRef, {
-        role: 'teacher',
-        updatedAt: serverTimestamp(),
-      });
-    }
+    snap = await getDoc(userRef);
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, adminPath);
+    handleFirestoreError(error, OperationType.GET, `users/${targetUid}`);
+  }
+  if (!snap.exists()) throw new Error('USER_NOT_FOUND');
+  try {
+    await updateDoc(userRef, {
+      role: 'teacher',
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `users/${targetUid}`);
   }
 }
 
 const thaiErr = (e: unknown): string => {
   const m = String((e as any)?.code || (e as any)?.message || e);
-  if (/email-already-in-use/i.test(m)) return 'ชื่อผู้ใช้นี้มีบัญชีแล้ว กรุณาเข้าสู่ระบบหรือใช้ชื่ออื่น';
-  if (/wrong-password|user-not-found|invalid-credential|invalid-login-credentials/i.test(m)) return 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (ถ้ายังไม่มีบัญชี กด "สมัครสมาชิกใหม่")';
-  if (/weak-password/i.test(m)) return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
-  if (/operation-not-allowed/i.test(m)) return 'ต้องเปิดใช้งาน Email/Password ใน Firebase Console ก่อน (Authentication → Sign-in method → Email/Password → Enable)';
-  if (/too-many-requests/i.test(m)) return 'ลองเข้าสู่ระบบหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่';
-  if (/network-request-failed|offline|Failed to fetch/i.test(m)) return 'เชื่อมต่ออินเทอร์เน็ตหรือเซิร์ฟเวอร์ไม่ได้';
+  if (/USER_EXISTS/.test(m)) return 'ชื่อผู้ใช้นี้มีบัญชีแล้ว กรุณาเข้าสู่ระบบหรือใช้ชื่ออื่น';
+  if (/USER_NOT_FOUND/.test(m)) return 'ไม่พบบัญชีนี้ (กด "สมัครสมาชิกใหม่" ก่อน หรือตรวจสอบชื่อ)';
+  if (/INVALID_PASSWORD/.test(m)) return 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+  if (/network-request-failed|offline|Failed to fetch|unavailable/i.test(m)) return 'เชื่อมต่ออินเทอร์เน็ตหรือเซิร์ฟเวอร์ไม่ได้';
   if (/permission-denied|Missing or insufficient permissions/i.test(m)) return 'ไม่มีสิทธิ์เข้าถึงข้อมูลนี้';
   if (/Quota exceeded/i.test(m)) return 'เกินโควต้าการใช้งานรายวันของฐานข้อมูล กรุณารอรีเซ็ตวันถัดไป';
-  if (/INVALID_UID/i.test(m)) return 'รูปแบบ UID ไม่ถูกต้อง';
+  if (/INVALID_UID/.test(m)) return 'กรุณากรอกชื่อผู้ใช้หรือ UID ให้ถูกต้อง';
   return 'เกิดข้อผิดพลาด: ' + m;
 };
 
@@ -1178,7 +1126,6 @@ const SicCloud = {
   authReady: () => ready,
   loggedIn: () => !!currentSession,
   uid: () => currentSession?.uid || null,
-  email: () => currentSession?.email || null,
   session: () => currentSession,
   status: () => cloudStatus,
   init,

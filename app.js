@@ -33,7 +33,7 @@ const cloudOn = () => !!(window.SicCloud && window.SicCloud.enabled());
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { toast('พื้นที่จัดเก็บในเครื่องเต็ม'); } };
 const syncErr = (e) => toast(cloudOn() ? window.SicCloud.thaiErr(e) : 'บันทึกข้อมูลไม่สำเร็จ');
 
-let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', authMode: 'login', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 1, cSet: 'pretest', cIdx: 0, cText: '', loginBusy: false, needEnableEmailAuth: false };
+let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', authMode: 'login', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 1, cSet: 'pretest', cIdx: 0, cText: '', loginBusy: false };
 
 // ===== ตัวช่วย =====
 const $ = (s) => document.querySelector(s);
@@ -101,9 +101,6 @@ function vLogin() {
     return `<div class="card" style="max-width:440px;margin:24px auto;text-align:center"><div class="logo"><img src="assets/logo.jpg" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>กำลังเชื่อมต่อระบบคลาวด์…</h2><p class="muted">กำลังตรวจสอบสถานะการเข้าสู่ระบบ กรุณารอสักครู่</p></div>`;
   }
   const reg = ui.authMode === 'register';
-  const setupHint = ui.needEnableEmailAuth
-    ? `<div class="result" style="margin-top:12px;border-color:var(--warn)"><b>ต้องเปิดใช้งาน Name/Password (Email/Password) ใน Firebase Console ก่อน 1 ครั้ง</b><div class="muted" style="font-size:.82rem;margin-top:4px">1. เปิด Firebase Console → Authentication → Sign-in method<br>2. กด Add new provider → เลือก Email/Password → เปิด Enable → Save<br>3. กลับมาหน้านี้แล้วกด${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}อีกครั้ง</div></div>`
-    : '';
   return `<div class="card" style="max-width:420px;margin:24px auto"><div class="logo"><img src="assets/logo.jpg" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</h2>
     <label>ชื่อ</label><input id="${reg ? 'rName' : 'lName'}" autocomplete="username" placeholder="ชื่อของคุณ (ใช้เข้าสู่ระบบ)">
     <label>${reg ? 'รหัสผ่าน (อย่างน้อย 6 ตัว)' : 'รหัสผ่าน / รหัสครู'}</label><input id="lCode" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}">
@@ -111,7 +108,7 @@ function vLogin() {
     <p class="row"><button data-act="${reg ? 'doRegister' : 'doLogin'}" ${ui.loginBusy ? 'disabled' : ''}>${ui.loginBusy ? 'กำลังดำเนินการ…' : (reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ')}</button>
     <button class="alt" data-act="authMode" data-m="${reg ? 'login' : 'register'}" ${ui.loginBusy ? 'disabled' : ''}>${reg ? 'มีบัญชีแล้ว' : 'สมัครสมาชิกใหม่'}</button></p>
     ${reg ? '' : '<p class="muted">ถ้าใส่รหัสครูในช่องรหัสผ่านจะเข้าสู่ระบบครู นอกเหนือจากนั้นเข้าสู่ระบบผู้เล่นปกติด้วยชื่อและรหัสผ่านที่สมัครไว้</p>'}
-    <p class="muted" style="font-size:.85rem">บัญชี ห้องเรียน และคะแนนถูกบันทึกบนคลาวด์ ใช้ชื่อและรหัสผ่านเดิมเข้าสู่ระบบต่อจากเครื่องอื่นได้</p>${setupHint}</div>`;
+    <p class="muted" style="font-size:.85rem">บัญชี ห้องเรียน และคะแนนถูกบันทึกบนคลาวด์ ใช้ชื่อและรหัสผ่านเดิมเข้าสู่ระบบต่อจากเครื่องอื่นได้</p></div>`;
 }
 
 function vHome() {
@@ -391,7 +388,7 @@ function vTeacher() {
   if (ui.tTab === 'export') {
     body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้อง</p>';
     body += `<div class="card"><h3>สำรอง/กู้คืนข้อมูลทั้งหมด</h3><p class="muted">ข้อมูลบัญชี ห้อง คะแนน ผลสอบ และรูปหลักฐานถูกบันทึกในฐานข้อมูลออนไลน์ (Firebase) อัตโนมัติ สามารถเข้าสู่ระบบจากเครื่องอื่นได้ทันที และยังส่งออกเป็นไฟล์สำรองได้</p><div class="row"><button data-act="backup">ดาวน์โหลดไฟล์สำรอง</button><button class="alt" data-act="restorePick">กู้คืนจากไฟล์สำรอง</button><input type="file" id="restoreFile" accept="application/json,.json" style="display:none"></div></div>`;
-    body += `<div class="card"><h3>เพิ่มสิทธิ์ครูสำหรับบัญชีอื่น</h3><p class="muted">ให้ครูท่านอื่นเข้าสู่ระบบด้วยชื่อและรหัสผ่าน แล้วคัดลอกรหัสผู้ใช้ (UID) จากหน้าแรกมาเพิ่มที่นี่ หรือใช้รหัสครูตอนเข้าสู่ระบบ</p><div class="row"><input id="newTeacherUid" placeholder="วาง UID ของครูที่ต้องการเพิ่ม"><button data-act="grantTeacher">เพิ่มสิทธิ์ครู</button></div></div>`;
+    body += `<div class="card"><h3>เพิ่มสิทธิ์ครูสำหรับบัญชีอื่น</h3><p class="muted">ให้ครูท่านอื่นสมัครด้วยชื่อและรหัสผ่าน แล้วกรอกชื่อผู้ใช้หรือรหัสผู้ใช้ (UID) ที่นี่ (หรือเข้าสู่ระบบด้วยรหัสครูได้เลย)</p><div class="row"><input id="newTeacherUid" placeholder="วางชื่อผู้ใช้หรือ UID ของครูที่ต้องการเพิ่ม"><button data-act="grantTeacher">เพิ่มสิทธิ์ครู</button></div></div>`;
   }
   if (ui.tTab === 'calib') {
     const sets = [['pretest', 'Pre-Test'], ['posttest', 'Post-Test']], cs = ui.cSet || 'pretest', ci = Math.min(ui.cIdx || 0, L[cs].length - 1), cq = L[cs][ci], th = Object.assign({}, SIM_DEFAULT, L.exam || {});
@@ -553,7 +550,7 @@ const H = {
     }
     go('post', { tab: 'mission', post: null });
   },
-  authMode: (b) => go('login', { authMode: b.dataset.m, needEnableEmailAuth: false }),
+  authMode: (b) => go('login', { authMode: b.dataset.m }),
   async doRegister() {
     if (ui.loginBusy) return;
     const name = ($('#rName') && $('#rName').value || '').trim(), pw = ($('#lCode') && $('#lCode').value || ''), pw2 = ($('#rPw2') && $('#rPw2').value || '');
@@ -562,7 +559,7 @@ const H = {
     if (pw !== pw2) return toast('ยืนยันรหัสผ่านไม่ตรงกัน');
     if (TEACHER_CODE_HASHES.includes(await sha(pw))) return toast('รหัสผ่านนี้ใช้ไม่ได้ กรุณาตั้งรหัสอื่น');
     if (cloudOn()) {
-      ui.loginBusy = true; ui.needEnableEmailAuth = false; render();
+      ui.loginBusy = true; render();
       try {
         const s = await SicCloud.registerWithName(name, pw);
         DB.session = { uid: s.uid, role: s.role, name: s.name, roomCode: s.roomCode };
@@ -572,7 +569,6 @@ const H = {
         return go('home', { authMode: 'login' });
       } catch (e) {
         ui.loginBusy = false;
-        if (/operation-not-allowed/i.test(String(e && (e.code || e.message)))) ui.needEnableEmailAuth = true;
         toast(SicCloud.thaiErr(e));
         return render();
       }
@@ -588,7 +584,7 @@ const H = {
     const h = await sha(pw);
     const isTCode = TEACHER_CODE_HASHES.includes(h);
     if (cloudOn()) {
-      ui.loginBusy = true; ui.needEnableEmailAuth = false; render();
+      ui.loginBusy = true; render();
       try {
         const s = await SicCloud.loginWithName(name, pw, isTCode);
         DB.session = { uid: s.uid, role: s.role, name: s.name, roomCode: s.roomCode };
@@ -598,7 +594,6 @@ const H = {
         return go('home');
       } catch (e) {
         ui.loginBusy = false;
-        if (/operation-not-allowed/i.test(String(e && (e.code || e.message)))) ui.needEnableEmailAuth = true;
         toast(SicCloud.thaiErr(e));
         return render();
       }
@@ -620,7 +615,7 @@ const H = {
   },
   async grantTeacher() {
     const uidInput = ($('#newTeacherUid') && $('#newTeacherUid').value || '').trim();
-    if (!uidInput) return toast('กรุณากรอก UID ของครู');
+    if (!uidInput) return toast('กรุณากรอกชื่อผู้ใช้หรือ UID ของครู');
     try {
       await SicCloud.grantTeacherAdmin(uidInput);
       $('#newTeacherUid').value = '';
@@ -943,7 +938,7 @@ document.addEventListener('change', (e) => {
   ui[b] = e.target.value; if (b === 'tRoom' || b === 'slotRole' || b === 'slotTrait' || b === 'auditTarget') return; render();
 });
 
-// ===== ฐานข้อมูลออนไลน์ (Firebase Auth + Cloud Firestore) =====
+// ===== ฐานข้อมูลออนไลน์ (Cloud Firestore) =====
 function startCloud() {
   if (!cloudOn()) return;
   SicCloud.init({
@@ -978,7 +973,7 @@ document.addEventListener('change', async (e) => {
   try {
     const j = JSON.parse(await e.target.files[0].text()), d = j && j.db;
     if (!d || j.app !== 'smart-integrity-city' || typeof d.rooms !== 'object' || !Array.isArray(d.lessons)) throw new Error('bad');
-    if (!confirm('กู้คืนจะนำห้อง/คะแนน/สมาชิก/ชุดสื่อจากไฟล์มาเพิ่ม (ถ้ารหัสห้องหรืออีเมลซ้ำ จะใช้ข้อมูลจากไฟล์) ดำเนินการต่อ?')) return;
+    if (!confirm('กู้คืนจะนำห้อง/คะแนน/สมาชิก/ชุดสื่อจากไฟล์มาเพิ่ม (ถ้ารหัสห้องหรือบัญชีซ้ำ จะใช้ข้อมูลจากไฟล์) ดำเนินการต่อ?')) return;
     Object.assign(DB.rooms, d.rooms);
     d.lessons.forEach((l) => { const i = DB.lessons.findIndex((x) => x.id === l.id); if (i >= 0) DB.lessons[i] = l; else DB.lessons.push(l); });
     save();

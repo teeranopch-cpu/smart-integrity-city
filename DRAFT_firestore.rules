@@ -23,68 +23,17 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(uid) {
-      return isSignedIn() && request.auth.uid == uid;
-    }
-
-    function isAdmin() {
-      return isSignedIn() && (
-        (
-          request.auth.token.email_verified == true && (
-            request.auth.token.email == 'Teeranop.ch@gmail.com' ||
-            request.auth.token.email == 'teeranop.ch@gmail.com'
-          )
-        ) ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
-    }
-
-    function isValidTeacherSecret(secret) {
-      return secret is string &&
-        secret.size() >= 1 &&
-        secret.size() <= 64 &&
-        hashing.sha256(secret.toUtf8()).toBase64() == '+dkzXXC0IcmJzdaqrkUK3O/WfnPTNsL8RUetVKcZEeg=';
-    }
-
     // ===== Entity Validation Helpers =====
-    function isValidUserPublic(data, uid) {
-      return data.keys().hasAll(['uid', 'name', 'role', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'name', 'role', 'roomCode', 'createdAt', 'updatedAt']) &&
+    function isValidUser(data, uid) {
+      return data.keys().hasAll(['uid', 'name', 'passwordHash', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'name', 'passwordHash', 'role', 'roomCode', 'createdAt', 'updatedAt']) &&
         data.uid is string && data.uid == uid && data.uid.size() >= 1 && data.uid.size() <= 128 &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        data.passwordHash is string && data.passwordHash.size() == 64 &&
         data.role in ['player', 'teacher'] &&
         (!('roomCode' in data) || (data.roomCode is string && data.roomCode.size() <= 8)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
-    }
-
-    function isValidUserPrivate(data, uid) {
-      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt']) &&
-        data.uid is string && data.uid == uid && data.uid.size() >= 1 && data.uid.size() <= 128 &&
-        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
-    }
-
-    function isValidAdminGrant(data, uid) {
-      return data.keys().hasAll(['uid', 'grantedBy', 'createdAt']) &&
-        data.keys().hasOnly(['uid', 'grantedBy', 'createdAt']) &&
-        data.uid is string && data.uid == uid && data.uid.size() >= 1 && data.uid.size() <= 128 &&
-        data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128 &&
-        data.createdAt is timestamp;
-    }
-
-    function isValidAdminSelfClaim(data, uid) {
-      return data.keys().hasAll(['uid', 'teacherCode', 'createdAt']) &&
-        data.keys().hasOnly(['uid', 'teacherCode', 'createdAt']) &&
-        data.uid is string && data.uid == uid && data.uid.size() >= 1 && data.uid.size() <= 128 &&
-        isValidTeacherSecret(data.teacherCode) &&
-        data.createdAt is timestamp;
     }
 
     function isValidRoom(data, roomCode) {
@@ -162,143 +111,62 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
-    // ===== Collection Rules =====
+    // ===== Collection Rules (Schema-enforced, Name+Password direct Firestore mode) =====
     match /test/{docId} {
-      allow get: if isSignedIn() && docId == 'connection';
+      allow get: if docId == 'connection';
       allow list, write: if false;
     }
 
     match /users/{uid} {
-      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
-      allow list: if false;
-      allow create: if isSignedIn() &&
-        isValidId(uid) &&
-        isOwner(uid) &&
-        isValidUserPublic(incoming(), uid) &&
-        incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        (incoming().role == 'player' || isAdmin());
-      allow update: if isSignedIn() &&
-        isValidId(uid) &&
-        isValidUserPublic(incoming(), uid) &&
-        incoming().uid == existing().uid &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          (
-            isOwner(uid) &&
-            incoming().role == existing().role &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'roomCode', 'updatedAt'])
-          )
-        );
-      allow delete: if isAdmin() && isValidId(uid);
-
-      match /private/{docId} {
-        allow get: if isValidId(uid) && docId == 'info' && (isOwner(uid) || isAdmin());
-        allow list: if false;
-        allow create: if isSignedIn() &&
-          isValidId(uid) &&
-          docId == 'info' &&
-          isOwner(uid) &&
-          isValidUserPrivate(incoming(), uid) &&
-          incoming().createdAt == request.time &&
-          incoming().updatedAt == request.time;
-        allow update: if isSignedIn() &&
-          isValidId(uid) &&
-          docId == 'info' &&
-          isOwner(uid) &&
-          isValidUserPrivate(incoming(), uid) &&
-          incoming().uid == existing().uid &&
-          incoming().createdAt == existing().createdAt &&
-          incoming().updatedAt == request.time &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
-        allow delete: if isAdmin() && isValidId(uid) && docId == 'info';
-      }
-    }
-
-    match /admins/{uid} {
-      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow get: if isValidId(uid);
       allow list: if false;
       allow create: if isValidId(uid) &&
+        isValidUser(incoming(), uid) &&
         incoming().createdAt == request.time &&
-        (
-          (isAdmin() && isValidAdminGrant(incoming(), uid) && incoming().grantedBy == request.auth.uid) ||
-          (isOwner(uid) && isValidAdminSelfClaim(incoming(), uid))
-        );
-      allow update: if false;
-      allow delete: if isAdmin() && isValidId(uid);
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(uid) &&
+        isValidUser(incoming(), uid) &&
+        incoming().uid == existing().uid &&
+        incoming().passwordHash == existing().passwordHash &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'role', 'roomCode', 'updatedAt']);
+      allow delete: if false;
     }
 
     match /rooms/{roomCode} {
-      allow get: if isSignedIn() && isValidRoomCode(roomCode);
-      allow list: if isSignedIn() && (
-        resource.data.ownerUid == request.auth.uid ||
-        request.auth.uid in resource.data.memberUids
-      );
-      allow create: if isSignedIn() &&
-        isValidRoomCode(roomCode) &&
+      allow get: if isValidRoomCode(roomCode);
+      allow list: if true;
+      allow create: if isValidRoomCode(roomCode) &&
         isValidRoom(incoming(), roomCode) &&
-        incoming().ownerUid == request.auth.uid &&
-        incoming().status == 'lobby' &&
-        (request.auth.uid in incoming().memberUids) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
-      allow update: if isSignedIn() &&
-        isValidRoomCode(roomCode) &&
+      allow update: if isValidRoomCode(roomCode) &&
         isValidRoom(incoming(), roomCode) &&
         incoming().code == existing().code &&
         incoming().ownerUid == existing().ownerUid &&
         incoming().ownerName == existing().ownerName &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (
-          isAdmin() ||
-          (
-            existing().ownerUid == request.auth.uid &&
-            existing().status != 'ended' &&
-            (
-              incoming().status == existing().status ||
-              (existing().status == 'lobby' && incoming().status in ['playing', 'ended']) ||
-              (existing().status == 'playing' && incoming().status == 'ended')
-            ) &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'lessonId', 'status', 'city', 'cityStart', 'durationMin',
-              'startedAt', 'endsAt', 'endedAt', 'endReason', 'winner',
-              'memberUids', 'roster', 'log', 'usedAudit', 'usedHelp', 'usedTrait', 'updatedAt'
-            ])
-          ) ||
-          (
-            (request.auth.uid in incoming().memberUids) &&
-            incoming().memberUids.hasAll(existing().memberUids) &&
-            incoming().memberUids.size() <= existing().memberUids.size() + 1 &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'updatedAt'])
-          )
-        );
-      allow delete: if isSignedIn() &&
-        isValidRoomCode(roomCode) &&
-        (existing().ownerUid == request.auth.uid || isAdmin());
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'lessonId', 'status', 'city', 'cityStart', 'durationMin',
+          'startedAt', 'endsAt', 'endedAt', 'endReason', 'winner',
+          'memberUids', 'roster', 'log', 'usedAudit', 'usedHelp', 'usedTrait', 'updatedAt'
+        ]);
+      allow delete: if isValidRoomCode(roomCode);
 
       match /players/{playerId} {
-        allow get: if isSignedIn() &&
-          isValidRoomCode(roomCode) &&
+        allow get: if isValidRoomCode(roomCode) &&
           isValidId(playerId) &&
           exists(/databases/$(database)/documents/rooms/$(roomCode));
-        allow list: if isSignedIn() && (
-          resource.data.ownerUid == request.auth.uid ||
-          resource.data.claimedByUid == request.auth.uid
-        );
-        allow create: if isSignedIn() &&
-          isValidRoomCode(roomCode) &&
+        allow list: if true;
+        allow create: if isValidRoomCode(roomCode) &&
           isValidId(playerId) &&
           isValidPlayer(incoming(), roomCode, playerId) &&
-          incoming().ownerUid == request.auth.uid &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time &&
-          exists(/databases/$(database)/documents/rooms/$(roomCode)) &&
-          get(/databases/$(database)/documents/rooms/$(roomCode)).data.ownerUid == request.auth.uid;
-        allow update: if isSignedIn() &&
-          isValidRoomCode(roomCode) &&
+          exists(/databases/$(database)/documents/rooms/$(roomCode));
+        allow update: if isValidRoomCode(roomCode) &&
           isValidId(playerId) &&
           isValidPlayer(incoming(), roomCode, playerId) &&
           incoming().id == existing().id &&
@@ -307,55 +175,26 @@ service cloud.firestore {
           incoming().createdAt == existing().createdAt &&
           incoming().updatedAt == request.time &&
           exists(/databases/$(database)/documents/rooms/$(roomCode)) &&
-          (
-            isAdmin() ||
-            (
-              get(/databases/$(database)/documents/rooms/$(roomCode)).data.ownerUid == request.auth.uid &&
-              incoming().diff(existing()).affectedKeys().hasOnly([
-                'name', 'role', 'life', 'coop', 'step', 'pre', 'preScores', 'traitGame', 'post', 'claimedByUid', 'updatedAt'
-              ])
-            ) ||
-            (
-              (!('claimedByUid' in existing()) || existing().claimedByUid == null || existing().claimedByUid == '') &&
-              incoming().claimedByUid == request.auth.uid &&
-              incoming().diff(existing()).affectedKeys().hasOnly(['claimedByUid', 'updatedAt'])
-            ) ||
-            (
-              existing().claimedByUid == request.auth.uid &&
-              (!('post' in existing()) || existing().post == null) &&
-              incoming().post is map &&
-              incoming().diff(existing()).affectedKeys().hasOnly(['post', 'updatedAt'])
-            )
-          );
-        allow delete: if isSignedIn() &&
-          isValidRoomCode(roomCode) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'role', 'life', 'coop', 'step', 'pre', 'preScores', 'traitGame', 'post', 'claimedByUid', 'updatedAt'
+          ]);
+        allow delete: if isValidRoomCode(roomCode) &&
           isValidId(playerId) &&
-          exists(/databases/$(database)/documents/rooms/$(roomCode)) &&
-          (get(/databases/$(database)/documents/rooms/$(roomCode)).data.ownerUid == request.auth.uid || isAdmin());
+          exists(/databases/$(database)/documents/rooms/$(roomCode));
       }
 
       match /evidence/{evidenceId} {
-        allow get: if isSignedIn() &&
-          isValidRoomCode(roomCode) &&
+        allow get: if isValidRoomCode(roomCode) &&
           isValidId(evidenceId) &&
-          exists(/databases/$(database)/documents/rooms/$(roomCode)) &&
-          (existing().ownerUid == request.auth.uid || existing().authorUid == request.auth.uid || isAdmin());
-        allow list: if isSignedIn() && (
-          resource.data.ownerUid == request.auth.uid ||
-          resource.data.authorUid == request.auth.uid
-        );
-        allow create: if isSignedIn() &&
-          isValidRoomCode(roomCode) &&
+          exists(/databases/$(database)/documents/rooms/$(roomCode));
+        allow list: if true;
+        allow create: if isValidRoomCode(roomCode) &&
           isValidId(evidenceId) &&
           isValidEvidence(incoming(), roomCode, evidenceId) &&
-          incoming().authorUid == request.auth.uid &&
-          incoming().status == 'pending' &&
           incoming().createdAt == request.time &&
           incoming().updatedAt == request.time &&
-          exists(/databases/$(database)/documents/rooms/$(roomCode)) &&
-          get(/databases/$(database)/documents/rooms/$(roomCode)).data.ownerUid == incoming().ownerUid;
-        allow update: if isSignedIn() &&
-          isValidRoomCode(roomCode) &&
+          exists(/databases/$(database)/documents/rooms/$(roomCode));
+        allow update: if isValidRoomCode(roomCode) &&
           isValidId(evidenceId) &&
           isValidEvidence(incoming(), roomCode, evidenceId) &&
           incoming().id == existing().id &&
@@ -367,47 +206,30 @@ service cloud.firestore {
           incoming().createdAt == existing().createdAt &&
           incoming().updatedAt == request.time &&
           exists(/databases/$(database)/documents/rooms/$(roomCode)) &&
-          (
-            isAdmin() ||
-            (
-              get(/databases/$(database)/documents/rooms/$(roomCode)).data.ownerUid == request.auth.uid &&
-              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
-            ) ||
-            (
-              existing().authorUid == request.auth.uid &&
-              existing().status == 'rejected' &&
-              incoming().status == 'pending' &&
-              incoming().diff(existing()).affectedKeys().hasOnly(['img', 'desc', 'ai', 'status', 'at', 'updatedAt'])
-            )
-          );
-        allow delete: if isSignedIn() &&
-          isValidRoomCode(roomCode) &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'img', 'desc', 'ai', 'status', 'at', 'updatedAt'
+          ]);
+        allow delete: if isValidRoomCode(roomCode) &&
           isValidId(evidenceId) &&
-          exists(/databases/$(database)/documents/rooms/$(roomCode)) &&
-          (get(/databases/$(database)/documents/rooms/$(roomCode)).data.ownerUid == request.auth.uid || isAdmin());
+          exists(/databases/$(database)/documents/rooms/$(roomCode));
       }
     }
 
     match /lessons/{lessonId} {
-      allow get: if isSignedIn() && isValidId(lessonId);
-      allow list: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
-      allow create: if isSignedIn() &&
-        isValidId(lessonId) &&
+      allow get: if isValidId(lessonId);
+      allow list: if true;
+      allow create: if isValidId(lessonId) &&
         isValidLesson(incoming(), lessonId) &&
-        incoming().ownerUid == request.auth.uid &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time &&
-        isAdmin();
-      allow update: if isSignedIn() &&
-        isValidId(lessonId) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(lessonId) &&
         isValidLesson(incoming(), lessonId) &&
         incoming().id == existing().id &&
         incoming().ownerUid == existing().ownerUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        isAdmin() &&
         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'payload', 'updatedAt']);
-      allow delete: if isAdmin() && isValidId(lessonId);
+      allow delete: if isValidId(lessonId);
     }
   }
 }

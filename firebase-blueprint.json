@@ -1,13 +1,13 @@
 {
   "entities": {
-    "UserPublic": {
-      "title": "UserPublic",
-      "description": "Public profile and current room pointer for an authenticated Smart Integrity City user",
+    "User": {
+      "title": "User",
+      "description": "User account stored directly in Firestore with name and hashed password",
       "type": "object",
       "properties": {
         "uid": {
           "type": "string",
-          "description": "Firebase Auth UID of the user",
+          "description": "Deterministic user identifier derived from normalized username",
           "minLength": 1,
           "maxLength": 128
         },
@@ -17,9 +17,15 @@
           "minLength": 1,
           "maxLength": 80
         },
+        "passwordHash": {
+          "type": "string",
+          "description": "SHA-256 hex digest of uid and password",
+          "minLength": 64,
+          "maxLength": 64
+        },
         "role": {
           "type": "string",
-          "description": "Application role assigned by server/admin rules",
+          "description": "Application role (player or teacher)",
           "enum": ["player", "teacher"]
         },
         "roomCode": {
@@ -38,69 +44,7 @@
           "description": "Server last update timestamp"
         }
       },
-      "required": ["uid", "name", "role", "createdAt", "updatedAt"]
-    },
-    "UserPrivate": {
-      "title": "UserPrivate",
-      "description": "Isolated PII record containing the user's verified email address",
-      "type": "object",
-      "properties": {
-        "uid": {
-          "type": "string",
-          "description": "Firebase Auth UID of the user",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "email": {
-          "type": "string",
-          "format": "email",
-          "description": "Verified Google account email",
-          "minLength": 3,
-          "maxLength": 200
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server last update timestamp"
-        }
-      },
-      "required": ["uid", "email", "createdAt", "updatedAt"]
-    },
-    "Admin": {
-      "title": "Admin",
-      "description": "Trusted teacher/administrator registry keyed by Firebase Auth UID",
-      "type": "object",
-      "properties": {
-        "uid": {
-          "type": "string",
-          "description": "Firebase Auth UID granted teacher/admin privileges",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "grantedBy": {
-          "type": "string",
-          "description": "UID of the admin who granted this entry",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "teacherCode": {
-          "type": "string",
-          "description": "Verified teacher access code checked by security rules hash",
-          "minLength": 1,
-          "maxLength": 64
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp"
-        }
-      },
-      "required": ["uid", "createdAt"]
+      "required": ["uid", "name", "passwordHash", "role", "createdAt", "updatedAt"]
     },
     "Room": {
       "title": "Room",
@@ -116,7 +60,7 @@
         },
         "ownerUid": {
           "type": "string",
-          "description": "Firebase Auth UID of the room host",
+          "description": "User ID of the room host",
           "minLength": 1,
           "maxLength": 128
         },
@@ -410,16 +354,8 @@
   },
   "firestore": {
     "/users/{uid}": {
-      "schema": "UserPublic",
-      "description": "Authenticated user's profile and active room reference"
-    },
-    "/users/{uid}/private/info": {
-      "schema": "UserPrivate",
-      "description": "Isolated user PII (verified email)"
-    },
-    "/admins/{uid}": {
-      "schema": "Admin",
-      "description": "Trusted teacher/admin registry"
+      "schema": "User",
+      "description": "Direct Firestore user accounts with name, hashed password, and role"
     },
     "/rooms/{roomCode}": {
       "schema": "Room",
