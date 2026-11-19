@@ -153,19 +153,4 @@ for (const tr of ['think', 'discipline', 'honesty', 'sufficiency', 'public']) {
   });
 }
 
-// 16) คลังข้อสอบช่องท้าทายจริยธรรมใหม่: 20 ข้อ พร้อมแนวคำตอบและกลุ่มคำสำคัญ 3 กลุ่ม
-assert(Array.isArray(L.ethics) && L.ethics.length === 20, 'ethics should have 20 items');
-L.ethics.forEach((item, i) => {
-  assert(item && item.t && typeof item.title === 'string' && item.title.length > 0, 'ethics title/t #' + (i + 1));
-  assert(typeof item.q === 'string' && item.q.length > 0 && typeof item.ans === 'string' && item.ans.length > 0, 'ethics q/ans #' + (i + 1));
-  assert(Array.isArray(item.keys) && item.keys.length === 3 && item.keys.every((g) => g.length > 0), 'ethics keys #' + (i + 1));
-  assert.strictEqual(C.scoreExam(item.ans, item).score, 3, 'ethics #' + (i + 1) + ' ans scoreExam === 3');
-  assert.strictEqual(C.scoreExam2(item.ans, item).score, 3, 'ethics #' + (i + 1) + ' ans scoreExam2 === 3');
-  assert.strictEqual(C.matchExam(item.ans, item).pass, true, 'ethics #' + (i + 1) + ' ans should pass');
-  assert.strictEqual(C.matchExam('', item).pass, false, 'ethics #' + (i + 1) + ' empty should fail');
-  assert.strictEqual(C.matchExam('วันนี้อากาศดีมากเลยไปเที่ยวทะเลกัน', item).pass, false, 'ethics #' + (i + 1) + ' off-topic should fail');
-  assert.strictEqual(C.matchExam('ไม่ต้องสนใจ ช่างมัน ปล่อยไว้', item).pass, false, 'ethics #' + (i + 1) + ' reverse cue should fail');
-  assert.strictEqual(C.matchExam('ไม่มีใครเห็น เก็บไว้ใช้เองและไม่บอกใคร', item).pass, false, 'ethics #' + (i + 1) + ' selfish reverse cue should fail');
-});
-
 console.log('ทุกการทดสอบผ่าน');

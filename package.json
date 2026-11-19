@@ -5,10 +5,14 @@
   "scripts": {
     "dev": "serve -l 3000 .",
     "start": "serve -l 3000 .",
-    "build": "node test.js && node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.mkdirSync('dist',{recursive:true});for(const f of ['index.html','styles.css','data.js','core.js','app.js','cloud.js','config.js'])fs.copyFileSync(f,'dist/'+f);fs.cpSync('assets','dist/assets',{recursive:true});\"",
-    "lint": "node -c data.js && node -c core.js && node -c app.js"
+    "build": "node test.js && npx esbuild src/firebase-cloud.ts --bundle --format=iife --outfile=cloud.js --loader:.json=json --minify && node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.mkdirSync('dist',{recursive:true});for(const f of ['index.html','styles.css','data.js','core.js','app.js','cloud.js','config.js','firebase-applet-config.json'])fs.copyFileSync(f,'dist/'+f);fs.cpSync('assets','dist/assets',{recursive:true});\"",
+    "lint": "node -c data.js && node -c core.js && node -c app.js && node -c cloud.js && npx eslint firestore.rules"
   },
   "dependencies": {
+    "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.15.0",
+    "firebase": "^13.4.0",
     "serve": "^14.2.1"
   }
 }

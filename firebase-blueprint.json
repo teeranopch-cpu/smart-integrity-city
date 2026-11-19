@@ -1,0 +1,435 @@
+{
+  "entities": {
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public profile and current room pointer for an authenticated Smart Integrity City user",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name shown in rooms and certificates",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "description": "Application role assigned by server/admin rules",
+          "enum": ["player", "teacher"]
+        },
+        "roomCode": {
+          "type": "string",
+          "description": "Most recently entered 4-character room code or empty string",
+          "maxLength": 8
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp"
+        }
+      },
+      "required": ["uid", "name", "role", "createdAt", "updatedAt"]
+    },
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Isolated PII record containing the user's verified email address",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Verified Google account email",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp"
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Trusted teacher/administrator registry keyed by Firebase Auth UID",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID granted teacher/admin privileges",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "grantedBy": {
+          "type": "string",
+          "description": "UID of the admin who granted this entry",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        }
+      },
+      "required": ["uid", "grantedBy", "createdAt"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Smart Integrity City game room state and settings",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Unique 4-character alphanumeric room code",
+          "minLength": 4,
+          "maxLength": 6,
+          "pattern": "^[A-Z0-9]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the room host",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ownerName": {
+          "type": "string",
+          "description": "Display name of the room host",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "lessonId": {
+          "type": "string",
+          "description": "Identifier of the lesson dataset used in this room",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "status": {
+          "type": "string",
+          "description": "Lifecycle status of the room",
+          "enum": ["lobby", "playing", "ended"]
+        },
+        "city": {
+          "type": "number",
+          "description": "Current Smart Integrity City index"
+        },
+        "cityStart": {
+          "type": "number",
+          "description": "Initial city index configured in lobby"
+        },
+        "durationMin": {
+          "type": "number",
+          "description": "Game timer duration in minutes"
+        },
+        "startedAt": {
+          "type": "number",
+          "description": "Epoch milliseconds when game started"
+        },
+        "endsAt": {
+          "type": "number",
+          "description": "Epoch milliseconds when game ends or ended"
+        },
+        "endedAt": {
+          "type": "number",
+          "description": "Epoch milliseconds when game finished"
+        },
+        "endReason": {
+          "type": "string",
+          "description": "Reason the game ended",
+          "maxLength": 32
+        },
+        "winner": {
+          "type": "string",
+          "description": "Winning player ID if applicable",
+          "maxLength": 64
+        },
+        "memberUids": {
+          "type": "array",
+          "description": "Bounded list of user UIDs who joined this room"
+        },
+        "roster": {
+          "type": "array",
+          "description": "Bounded summary list of up to 6 registered players ({id, name, role})"
+        },
+        "log": {
+          "type": "array",
+          "description": "Bounded list of recent game events"
+        },
+        "usedAudit": {
+          "type": "object",
+          "description": "Map of used audit question indices per role"
+        },
+        "usedHelp": {
+          "type": "object",
+          "description": "Map of used help question indices per role"
+        },
+        "usedTrait": {
+          "type": "object",
+          "description": "Map of used trait card indices per trait"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp"
+        }
+      },
+      "required": ["code", "ownerUid", "ownerName", "lessonId", "status", "city", "cityStart", "durationMin", "memberUids", "roster", "log", "createdAt", "updatedAt"]
+    },
+    "Player": {
+      "title": "Player",
+      "description": "Individual player state within a room",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Player slot identifier",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "roomCode": {
+          "type": "string",
+          "description": "Parent room code",
+          "minLength": 4,
+          "maxLength": 6
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "Parent room owner UID",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "claimedByUid": {
+          "type": "string",
+          "description": "UID of the student who claimed this player post-game",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Player name",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "description": "Boardgame profession role ID",
+          "enum": ["gov", "biz", "press", "local", "police", "citizen"]
+        },
+        "life": {
+          "type": "number",
+          "description": "Personal life score"
+        },
+        "coop": {
+          "type": "number",
+          "description": "Cooperation score"
+        },
+        "step": {
+          "type": "number",
+          "description": "Completed mission steps (0-3)"
+        },
+        "pre": {
+          "type": "object",
+          "description": "Pre-Test scores by trait"
+        },
+        "preScores": {
+          "type": "array",
+          "description": "Per-question Pre-Test scores"
+        },
+        "traitGame": {
+          "type": "object",
+          "description": "In-game trait scores"
+        },
+        "post": {
+          "type": "object",
+          "description": "Post-Test summary and scores"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp"
+        }
+      },
+      "required": ["id", "roomCode", "ownerUid", "name", "role", "life", "coop", "step", "traitGame", "createdAt", "updatedAt"]
+    },
+    "Evidence": {
+      "title": "Evidence",
+      "description": "Post-game real-life trait mission evidence submitted by a player",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Evidence document ID (playerId_trait)",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "roomCode": {
+          "type": "string",
+          "description": "Parent room code",
+          "minLength": 4,
+          "maxLength": 6
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "Parent room owner UID",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "authorUid": {
+          "type": "string",
+          "description": "UID of the student who uploaded the evidence",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "playerId": {
+          "type": "string",
+          "description": "Target player ID in the room",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "trait": {
+          "type": "string",
+          "description": "Trait category",
+          "enum": ["think", "discipline", "honesty", "sufficiency", "public"]
+        },
+        "img": {
+          "type": "string",
+          "description": "Compressed JPEG data URL or image URL",
+          "minLength": 1,
+          "maxLength": 600000
+        },
+        "desc": {
+          "type": "string",
+          "description": "Student description of the real-life integrity action",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "ai": {
+          "type": "string",
+          "description": "Automated preliminary evaluation verdict",
+          "enum": ["pass", "fail", "corrupt"]
+        },
+        "status": {
+          "type": "string",
+          "description": "Teacher review status",
+          "enum": ["pending", "approved", "rejected"]
+        },
+        "at": {
+          "type": "number",
+          "description": "Submission epoch milliseconds"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp"
+        }
+      },
+      "required": ["id", "roomCode", "ownerUid", "authorUid", "playerId", "trait", "img", "desc", "ai", "status", "at", "createdAt", "updatedAt"]
+    },
+    "Lesson": {
+      "title": "Lesson",
+      "description": "Teacher-configured lesson package containing exams, missions, and trait cards",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Lesson identifier",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "UID of the teacher who saved this lesson",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Lesson display title",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "payload": {
+          "type": "object",
+          "description": "Full structured lesson object (pretest, posttest, missions, helpBank, traits, auditBank, points, keywords, passScore, exam)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp"
+        }
+      },
+      "required": ["id", "ownerUid", "name", "payload", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "UserPublic",
+      "description": "Authenticated user's profile and active room reference"
+    },
+    "/users/{uid}/private/info": {
+      "schema": "UserPrivate",
+      "description": "Isolated user PII (verified email)"
+    },
+    "/admins/{uid}": {
+      "schema": "Admin",
+      "description": "Trusted teacher/admin registry"
+    },
+    "/rooms/{roomCode}": {
+      "schema": "Room",
+      "description": "Game room metadata, timer, city index, and bounded roster/log"
+    },
+    "/rooms/{roomCode}/players/{playerId}": {
+      "schema": "Player",
+      "description": "Player state, Pre-Test, in-game traits, and Post-Test scores"
+    },
+    "/rooms/{roomCode}/evidence/{evidenceId}": {
+      "schema": "Evidence",
+      "description": "Real-life mission photo evidence submitted post-game"
+    },
+    "/lessons/{lessonId}": {
+      "schema": "Lesson",
+      "description": "Custom lesson packages managed by teachers"
+    }
+  }
+}

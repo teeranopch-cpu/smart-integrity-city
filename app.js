@@ -24,18 +24,16 @@ const loadDB = () => {
       if (!l.traits || typeof l.traits !== 'object' || TRAITS.some((tr) => !Array.isArray(l.traits[tr.id]) || l.traits[tr.id].length < 10 || typeof l.traits[tr.id][0] !== 'object' || !l.traits[tr.id][0].keys)) {
         l.traits = JSON.parse(JSON.stringify(DEFAULT_LESSON.traits));
       }
-      if (!Array.isArray(l.ethics) || l.ethics.length < 20 || !l.ethics[0] || !l.ethics[0].keys) {
-        l.ethics = JSON.parse(JSON.stringify(DEFAULT_LESSON.ethics));
-      }
     });
     return d;
   } catch { return initDB(); }
 };
 let DB = loadDB();
 const cloudOn = () => !!(window.SicCloud && window.SicCloud.enabled());
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); if (cloudOn()) window.SicCloud.schedule(); } catch (e) { toast('พื้นที่จัดเก็บเต็ม (รูปหลักฐานอาจใหญ่เกินไป)'); } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { toast('พื้นที่จัดเก็บในเครื่องเต็ม'); } };
+const syncErr = (e) => toast(cloudOn() ? window.SicCloud.thaiErr(e) : 'บันทึกข้อมูลไม่สำเร็จ');
 
-let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', authMode: 'login', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 1, cSet: 'pretest', cIdx: 0, cText: '' };
+let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 1, cSet: 'pretest', cIdx: 0, cText: '', loginBusy: false };
 
 // ===== ตัวช่วย =====
 const $ = (s) => document.querySelector(s);
@@ -56,16 +54,23 @@ const options = (arr, sel) => arr.map(([v, l]) => `<option value="${esc(v)}" ${v
 const roleOpts = (sel) => options(ROLES.map((r) => [r.id, r.icon + ' ' + r.name]), sel);
 const go = (view, extra = {}) => { Object.assign(ui, { view }, extra); render(); window.scrollTo(0, 0); };
 
-function fileToDataURL(file, maxW = 800) {
+function fileToDataURL(file, maxW = 720) {
   return new Promise((resolve, reject) => {
     const img = new Image(); const fr = new FileReader();
     fr.onload = () => { img.src = fr.result; };
     fr.onerror = reject;
     img.onload = () => {
-      const k = Math.min(1, maxW / img.width); const c = document.createElement('canvas');
-      c.width = img.width * k; c.height = img.height * k;
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      resolve(c.toDataURL('image/jpeg', 0.7));
+      let w = Math.min(img.width, maxW), h = Math.round((img.height / img.width) * w);
+      const c = document.createElement('canvas');
+      let q = 0.72, out = '';
+      for (let step = 0; step < 5; step++) {
+        c.width = Math.max(240, w); c.height = Math.max(180, h);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        out = c.toDataURL('image/jpeg', q);
+        if (out.length <= 450000) break;
+        w = Math.round(w * 0.8); h = Math.round(h * 0.8); q = Math.max(0.42, q - 0.1);
+      }
+      resolve(out);
     };
     img.onerror = reject; fr.readAsDataURL(file);
   });
@@ -92,29 +97,32 @@ function nav() {
 }
 
 function vLogin() {
-  const reg = ui.authMode === 'register';
-  return `<div class="card" style="max-width:420px;margin:24px auto"><div class="logo"><img src="assets/logo.jpg" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</h2>
-    ${reg ? '<label>ชื่อ</label><input id="rName" autocomplete="name" placeholder="ชื่อของคุณ">' : ''}
-    <label>อีเมล</label><input id="lEmail" type="email" autocomplete="email" placeholder="you@example.com">
-    <label>${reg ? 'รหัสผ่าน (อย่างน้อย 6 ตัว)' : 'รหัสผ่าน / รหัสครู'}</label><input id="lCode" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}">
-    ${reg ? '<label>ยืนยันรหัสผ่าน</label><input id="rPw2" type="password" autocomplete="new-password">' : ''}
-    <p class="row"><button data-act="${reg ? 'doRegister' : 'doLogin'}">${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</button>
-    <button class="alt" data-act="authMode" data-m="${reg ? 'login' : 'register'}">${reg ? 'มีบัญชีแล้ว' : 'สมัครสมาชิกใหม่'}</button></p>
-    ${reg ? '' : '<p class="muted">ถ้าใส่รหัสครูในช่องรหัสผ่านจะเข้าสู่ระบบครู นอกเหนือจากนั้นเข้าสู่ระบบผู้เล่นปกติด้วยบัญชีที่สมัครไว้</p>'}
-    <p class="muted">${cloudOn() ? 'บัญชีและข้อมูลถูกบันทึกในฐานข้อมูลออนไลน์ เข้าสู่ระบบได้จากทุกเครื่อง' : 'บัญชีเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น'}</p></div>`;
+  if (cloudOn() && !SicCloud.authReady()) {
+    return `<div class="card" style="max-width:440px;margin:24px auto;text-align:center"><div class="logo"><img src="assets/logo.jpg" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>กำลังเชื่อมต่อระบบคลาวด์…</h2><p class="muted">กำลังตรวจสอบสถานะการเข้าสู่ระบบ กรุณารอสักครู่</p></div>`;
+  }
+  const gIcon = `<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.45a5.52 5.52 0 0 1-2.39 3.62v3.01h3.87c2.26-2.08 3.56-5.15 3.56-8.66z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.07 7.93-2.91l-3.87-3.01c-1.07.72-2.44 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.95H1.28v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.28 14.28A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.38-2.28v-3.1H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.38l4-3.1z"/><path fill="#EA4335" d="M12 4.77c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.62l4 3.1C6.23 6.88 8.88 4.77 12 4.77z"/></svg>`;
+  return `<div class="card" style="max-width:440px;margin:24px auto"><div class="logo"><img src="assets/logo.jpg" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>เข้าสู่ระบบ</h2>
+    <p class="muted">เข้าสู่ระบบด้วยบัญชี Google เพื่อให้ห้องเรียน รายชื่อผู้เล่น คะแนน ผลสอบ และหลักฐานซิงก์บนคลาวด์และเข้าใช้งานได้ต่อเนื่องจากทุกเครื่อง</p>
+    <p><button class="google-btn" data-act="googleLogin" ${ui.loginBusy ? 'disabled' : ''}>${gIcon}<span>${ui.loginBusy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบด้วย Google'}</span></button></p>
+    <p class="muted" style="font-size:.82rem">• ครู/ผู้สอนที่ได้รับสิทธิ์จะเข้าสู่ระบบหลังบ้านครูได้อัตโนมัติจากทุกอุปกรณ์<br>• นักเรียนใช้บัญชี Google ของตนเองค้นหารหัสห้องเพื่อส่งภารกิจชีวิตจริง ทำ Post-Test และพิมพ์เกียรติบัตร</p></div>`;
 }
 
 function vHome() {
-  const cur = me().roomCode && DB.rooms[me().roomCode];
+  const u = me(), cur = u.roomCode && DB.rooms[u.roomCode];
+  const rooms = Object.values(DB.rooms || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return `
   <div class="card"><div class="logo sm"><img src="assets/logo.jpg" alt="Smart Integrity City"></div>
-    <p class="muted">สวัสดี ${esc(me().name)} — เลือกสิ่งที่ต้องการทำ</p></div>
+    <p>สวัสดี <b>${esc(u.name)}</b> ${u.email ? `<span class="muted">(${esc(u.email)})</span>` : ''}</p>
+    <div class="row"><input id="profileName" value="${esc(u.name)}" placeholder="ชื่อที่แสดงในเกม" style="max-width:260px"><button class="alt" data-act="saveProfileName">บันทึกชื่อ</button></div>
+    ${u.uid ? `<p class="muted" style="font-size:.8rem;margin-top:8px">รหัสผู้ใช้ (UID): <code>${esc(u.uid)}</code></p>` : ''}
+  </div>
   <div class="grid g2">
     <div class="card"><h3>สร้างห้อง</h3><p class="muted">เลือกสื่อการสอน แล้วลงทะเบียนผู้เล่น 6 คน</p><button data-act="create">สร้างห้อง</button></div>
     <div class="card"><h3>ค้นหาห้องเรียน</h3><p class="muted">ใช้รหัสห้องเพื่อทำภารกิจหน้าห้องเรียน สอบหลังเรียน และรับเกียรติบัตร</p>
       <label>รหัสห้อง</label><input id="findCode" maxlength="6" placeholder="เช่น AB12" style="text-transform:uppercase"><p><button data-act="findRoom">ค้นหาห้อง</button></p></div>
   </div>
-  ${cur ? `<div class="card"><b>ห้องล่าสุดของคุณ: ${cur.code}</b> (${statusLabel(cur.status)}) <button class="alt" data-act="enter" data-code="${cur.code}">กลับเข้าห้อง</button></div>` : ''}`;
+  ${cur ? `<div class="card"><b>ห้องล่าสุดของคุณ: ${cur.code}</b> (${statusLabel(cur.status)}) <button class="alt" data-act="enter" data-code="${cur.code}">กลับเข้าห้อง</button></div>` : ''}
+  ${rooms.length ? `<div class="card"><h3>ห้องของคุณทั้งหมด (${rooms.length})</h3>${rooms.map((rm) => `<div class="room-item"><div><b>ห้อง ${esc(rm.code)}</b> · <span class="muted">${statusLabel(rm.status)} · ผู้เล่น ${(rm.players && rm.players.length) || (rm.roster && rm.roster.length) || 0} คน</span></div><div class="row">${(!rm.ownerUid || rm.ownerUid === u.uid) ? `<button class="alt" data-act="enter" data-code="${esc(rm.code)}">เปิดห้อง</button>` : ''}${rm.status === 'ended' ? `<button data-act="openPostRoom" data-code="${esc(rm.code)}">หลังเกม / เกียรติบัตร</button>` : ''}</div></div>`).join('')}</div>` : ''}`;
 }
 const statusLabel = (s) => ({ lobby: 'เตรียมเกม', playing: 'กำลังเล่น', ended: 'จบเกมแล้ว' }[s] || s);
 
@@ -286,7 +294,7 @@ function vAct() {
     ? `<div class="q"><b>ตรวจความสอดคล้องกับแนวคำตอบ:</b> <span class="${a.ev.aligned ? 'good' : 'bad'}">${a.ev.aligned ? '✓ ' : '✗ '}${esc(a.ev.note)}</span></div>`
     : '';
   const ansHint = (a.qItem && a.qItem.ans)
-    ? `<details ${(a.kind === 'audit' || a.kind === 'civic' || a.kind === 'trait' || a.kind === 'ethics') ? 'open ' : ''}class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ / แนวทางเกณฑ์ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
+    ? `<details ${(a.kind === 'audit' || a.kind === 'civic' || a.kind === 'trait') ? 'open ' : ''}class="q" style="margin-top:8px"><summary style="cursor:pointer"><b>ดูแนวคำตอบ / แนวทางเกณฑ์ (สำหรับผู้ควบคุมเกม)</b></summary><div style="margin-top:6px;white-space:pre-line">${esc(a.qItem.ans)}</div></details>`
     : '';
   return head + `<div class="q"><b>คำตอบ:</b> ${esc(a.text) || '<span class="muted">(ไม่ได้ตอบ)</span>'}</div>${alignBox}${ansHint}<div class="result"><b>ผลประเมินเบื้องต้น</b> (${esc(a.ev.note || 'ตัวประเมินอัตโนมัติ')})<br>
     <label>ยืนยันผลก่อนบันทึก (ผู้ควบคุมเกมแก้ไขได้)</label>${sel}
@@ -362,7 +370,7 @@ function vTeacher() {
   let body = '';
   if (ui.tTab === 'lessons' || ui.tTab === 'points') body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>`;
   if (ui.tTab === 'lessons') {
-    body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจตัวละคร 3 ขั้น (ขั้นละ 10 ข้อ ถูก/ผิด) ของ 6 ตัวละคร, คลังภารกิจช่วยเหลือ (60 สถานการณ์), คลังการ์ดคุณลักษณะ 5 ด้าน (50 การ์ด), คลังข้อสอบท้าทายจริยธรรม (20 ข้อ), คลังข้อสอบตรวจสอบ (60 ข้อ), คำสำคัญที่ใช้ตรวจ</p>
+    body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจตัวละคร 3 ขั้น (ขั้นละ 10 ข้อ ถูก/ผิด) ของ 6 ตัวละคร, คลังภารกิจช่วยเหลือ (60 สถานการณ์), คลังการ์ดคุณลักษณะ 5 ด้าน (50 การ์ด), คลังข้อสอบตรวจสอบ (60 ข้อ), คำสำคัญที่ใช้ตรวจ</p>
       <textarea id="lJson" style="min-height:420px;font-family:monospace;font-size:.8rem">${esc(JSON.stringify(L, null, 2))}</textarea>
       <p class="row"><button data-act="saveLesson">บันทึก</button><button class="alt" data-act="copyLesson">ทำสำเนาเป็นชุดใหม่</button><button class="danger" data-act="delLesson" ${DB.lessons.length < 2 ? 'disabled' : ''}>ลบชุดนี้</button></p>`;
   }
@@ -371,11 +379,12 @@ function vTeacher() {
       <label>เกณฑ์ผ่านเกียรติบัตร (เต็ม ${L.posttest.length * EXAM_MAX + TRAITS.length}: Post-Test ${L.posttest.length * EXAM_MAX} + ภารกิจชีวิตจริง ${TRAITS.length})</label><input type="number" id="passScore" min="1" max="${L.posttest.length * EXAM_MAX + TRAITS.length}" value="${L.passScore}"><p><button data-act="savePoints">บันทึกตารางแต้ม</button></p>`;
   }
   if (ui.tTab === 'review') {
-    body += mine.length ? mine.map((r) => `<div class="card"><b>ห้อง ${r.code}</b>${r.players.map((p) => Object.entries(p.evidence).map(([t, e]) => `<div class="row" style="margin-top:8px"><img class="ev" src="${e.img}" alt=""><div><b>${esc(p.name)}</b> · ${traitName(t)}<br>${esc(e.desc)}<br><span class="pill">${e.status}</span> <button data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="approved">ผ่าน</button> <button class="alt" data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="rejected">ไม่ผ่าน</button></div></div>`).join('')).join('') || '<p class="muted">ยังไม่มีหลักฐาน</p>'}</div>`).join('') : '<p class="muted">ยังไม่มีห้อง</p>';
+    body += mine.length ? mine.map((r) => `<div class="card"><b>ห้อง ${r.code}</b>${r.players.map((p) => Object.entries(p.evidence || {}).map(([t, e]) => `<div class="row" style="margin-top:8px"><img class="ev" src="${e.img}" alt=""><div><b>${esc(p.name)}</b> · ${traitName(t)}<br>${esc(e.desc)}<br><span class="pill">${e.status}</span> <button data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="approved">ผ่าน</button> <button class="alt" data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="rejected">ไม่ผ่าน</button></div></div>`).join('')).join('') || '<p class="muted">ยังไม่มีหลักฐาน</p>'}</div>`).join('') : '<p class="muted">ยังไม่มีห้อง</p>';
   }
   if (ui.tTab === 'export') {
     body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้อง</p>';
-    body += `<div class="card"><h3>สำรอง/กู้คืนข้อมูลทั้งหมด</h3><p class="muted">ข้อมูลอยู่ในเบราว์เซอร์เครื่องนี้ ถ้าล้างข้อมูลเบราว์เซอร์หรือเปลี่ยนเครื่องจะหาย ควรกดสำรองเก็บไว้เป็นไฟล์ (ห้อง คะแนน ผลสอบ รูปหลักฐาน สมาชิก ชุดสื่อ) แล้วนำเข้ากลับได้ทุกเมื่อ</p><div class="row"><button data-act="backup">ดาวน์โหลดไฟล์สำรอง</button><button class="alt" data-act="restorePick">กู้คืนจากไฟล์สำรอง</button><input type="file" id="restoreFile" accept="application/json,.json" style="display:none"></div></div>`;
+    body += `<div class="card"><h3>สำรอง/กู้คืนข้อมูลทั้งหมด</h3><p class="muted">ข้อมูลบัญชี ห้อง คะแนน ผลสอบ และรูปหลักฐานถูกบันทึกในฐานข้อมูลออนไลน์ (Firebase) อัตโนมัติ สามารถเข้าสู่ระบบจากเครื่องอื่นได้ทันที และยังส่งออกเป็นไฟล์สำรองได้</p><div class="row"><button data-act="backup">ดาวน์โหลดไฟล์สำรอง</button><button class="alt" data-act="restorePick">กู้คืนจากไฟล์สำรอง</button><input type="file" id="restoreFile" accept="application/json,.json" style="display:none"></div></div>`;
+    body += `<div class="card"><h3>เพิ่มสิทธิ์ครูสำหรับบัญชี Google อื่น</h3><p class="muted">ให้ครูท่านอื่นเข้าสู่ระบบด้วย Google แล้วคัดลอกรหัสผู้ใช้ (UID) จากหน้าแรกมาเพิ่มที่นี่ เพื่อให้เข้าหลังบ้านครูได้จากทุกเครื่อง</p><div class="row"><input id="newTeacherUid" placeholder="วาง UID ของครูที่ต้องการเพิ่ม"><button data-act="grantTeacher">เพิ่มสิทธิ์ครู</button></div></div>`;
   }
   if (ui.tTab === 'calib') {
     const sets = [['pretest', 'Pre-Test'], ['posttest', 'Post-Test']], cs = ui.cSet || 'pretest', ci = Math.min(ui.cIdx || 0, L[cs].length - 1), cq = L[cs][ci], th = Object.assign({}, SIM_DEFAULT, L.exam || {});
@@ -399,6 +408,8 @@ function render() {
   if (!me()) ui.view = 'login';
   else if (ui.view === 'login') ui.view = 'home';
   if (ui.view === 'teacher' && !isTeacher()) ui.view = 'home';
+  if (['lobby', 'pretest', 'game', 'end', 'post'].includes(ui.view) && !room()) ui.view = 'home';
+  if (ui.view === 'post' && room() && !room().players.find((x) => x.id === ui.pid)) ui.view = 'home';
   nav(); $('#app').innerHTML = VIEWS[ui.view](); tick();
 }
 
@@ -408,7 +419,7 @@ function tick() {
   const g = $('#gtimer');
   if (r && r.status === 'playing') {
     const left = r.endsAt - Date.now();
-    if (left <= 0) { endGame(r, 'time'); save(); go('end'); return; }
+    if (left <= 0) { endGame(r, 'time'); save(); if (cloudOn()) SicCloud.saveRoomMeta(r.code, r).catch(syncErr); go('end'); return; }
     if (g) g.textContent = fmtT(left);
   }
   const P = ui.view === 'pretest' ? ui.pre : ui.view === 'post' ? ui.post : null;
@@ -431,6 +442,7 @@ const newCode = () => { let c; do { c = Array.from({ length: 4 }, () => 'ABCDEFG
 function enterRoom(code) {
   const r = DB.rooms[(code || '').toUpperCase()]; if (!r) return toast('ไม่พบห้อง');
   ui.code = r.code; DB.session.roomCode = r.code; save();
+  if (cloudOn()) SicCloud.updateActiveRoomCode(r.code).catch(() => {});
   go(r.status === 'lobby' ? 'lobby' : r.status === 'playing' ? 'game' : 'end');
 }
 
@@ -495,78 +507,120 @@ const H = {
     try { localStorage.setItem('sic_last_backup', String(Date.now())); } catch (e) {} toast('ดาวน์โหลดไฟล์สำรองแล้ว');
   },
   restorePick: () => $('#restoreFile').click(),
-  saveAlts: () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const cs = ui.cSet || 'pretest', i = ui.cIdx || 0; L[cs][i].alts = $('#cAlts').value.split('\n').map((x) => x.trim()).filter(Boolean); ui.cText = $('#cText').value; save(); toast('บันทึกแล้ว'); render(); },
+  saveAlts: async () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const cs = ui.cSet || 'pretest', i = ui.cIdx || 0; L[cs][i].alts = $('#cAlts').value.split('\n').map((x) => x.trim()).filter(Boolean); ui.cText = $('#cText').value; save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('บันทึกแล้ว'); render(); },
   tryScore: () => { ui.cText = $('#cText').value; render(); },
-  saveTh: () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const v = ['t1', 't2', 't3'].map((k) => +$('#' + k).value / 100); if (!(v[0] <= v[1] && v[1] <= v[2]) || v.some((x) => !(x >= 0 && x <= 1))) return toast('เกณฑ์ต้องเรียงจากน้อยไปมาก (0–100)'); L.exam = { t1: v[0], t2: v[1], t3: v[2] }; save(); toast('บันทึกเกณฑ์แล้ว'); render(); },
+  saveTh: async () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const v = ['t1', 't2', 't3'].map((k) => +$('#' + k).value / 100); if (!(v[0] <= v[1] && v[1] <= v[2]) || v.some((x) => !(x >= 0 && x <= 1))) return toast('เกณฑ์ต้องเรียงจากน้อยไปมาก (0–100)'); L.exam = { t1: v[0], t2: v[1], t3: v[2] }; save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('บันทึกเกณฑ์แล้ว'); render(); },
   home: () => go('home'),
-  logout: () => { DB.session = null; if (cloudOn()) SicCloud.logout(); save(); ui.code = null; go('login'); },
+  logout: async () => {
+    if (cloudOn()) { try { await SicCloud.logout(); } catch (e) {} }
+    DB = initDB(); save(); ui.code = null; ui.pid = null; go('login');
+  },
   create: () => go('create'),
   teacher: () => go('teacher'),
   enter: (b) => enterRoom(b.dataset.code),
-  findRoom: () => { const c = $('#findCode').value.trim().toUpperCase(); if (!DB.rooms[c]) return toast('ไม่พบห้องนี้'); go('joinPost', { code: c, pid: null }); },
+  openPostRoom: async (b) => {
+    const c = (b.dataset.code || '').toUpperCase();
+    if (cloudOn()) { try { await SicCloud.fetchRoomByCode(c); } catch (e) { return syncErr(e); } }
+    if (!DB.rooms[c]) return toast('ไม่พบห้องนี้');
+    go('joinPost', { code: c, pid: null });
+  },
+  findRoom: async () => {
+    const c = $('#findCode').value.trim().toUpperCase();
+    if (!c) return toast('กรอกรหัสห้องก่อน');
+    if (cloudOn()) { try { await SicCloud.fetchRoomByCode(c); } catch (e) { return syncErr(e); } }
+    if (!DB.rooms[c]) return toast('ไม่พบห้องนี้');
+    go('joinPost', { code: c, pid: null });
+  },
   joinPostNow: () => go('joinPost'),
-  joinFind: () => { const c = $('#jCode').value.trim().toUpperCase(); if (!DB.rooms[c]) return toast('ไม่พบห้อง'); go('joinPost', { code: c }); },
-  joinGo: () => { if (!ui.pid) return toast('เลือกชื่อก่อน'); go('post', { tab: 'mission', post: null }); },
-  authMode: (b) => go('login', { authMode: b.dataset.m }),
-  async doRegister() {
-    const name = $('#rName').value.trim(), email = $('#lEmail').value.trim().toLowerCase(), pw = $('#lCode').value;
-    if (!name || !/^\S+@\S+\.\S+$/.test(email)) return toast('กรอกชื่อและอีเมลให้ถูกต้อง');
-    if (pw.length < 6) return toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัว');
-    if (pw !== $('#rPw2').value) return toast('ยืนยันรหัสผ่านไม่ตรงกัน');
-    if (TEACHER_CODE_HASHES.includes(await sha(pw))) return toast('รหัสผ่านนี้ใช้ไม่ได้ กรุณาตั้งรหัสอื่น');
-    if (cloudOn()) { // สมัครกับเซิร์ฟเวอร์ (รหัสผ่านถูกแฮชแบบ scrypt ในฐานข้อมูล ไม่เก็บในเครื่อง)
-      try { await SicCloud.signUp(email, pw, name); } catch (e) { return toast(SicCloud.thaiErr(e)); }
-      DB.session = { role: 'player', name, email }; save(); SicCloud.sync(); toast('สมัครสมาชิกสำเร็จ (บันทึกลงฐานข้อมูลออนไลน์แล้ว)'); return go('home', { authMode: 'login' });
-    }
-    if (DB.users.find((u) => u.email === email)) return toast('อีเมลนี้สมัครสมาชิกแล้ว');
-    DB.users.push({ name, email, hash: await sha(pw) });
-    DB.session = { role: 'player', name, email }; save(); toast('สมัครสมาชิกสำเร็จ'); go('home', { authMode: 'login' });
+  joinFind: async () => {
+    const c = $('#jCode').value.trim().toUpperCase();
+    if (!c) return toast('กรอกรหัสห้องก่อน');
+    if (cloudOn()) { try { await SicCloud.fetchRoomByCode(c); } catch (e) { return syncErr(e); } }
+    if (!DB.rooms[c]) return toast('ไม่พบห้อง');
+    go('joinPost', { code: c });
   },
-  async doLogin() {
-    const email = $('#lEmail').value.trim().toLowerCase(), pw = $('#lCode').value;
-    if (!email || !pw) return toast('กรอกอีเมลและรหัสผ่าน');
-    const h = await sha(pw);
-    if (cloudOn()) { // เข้าสู่ระบบกับเซิร์ฟเวอร์ (สิทธิ์ครู/ผู้เล่นตัดสินโดยเซิร์ฟเวอร์)
-      const legacy = DB.users.find((x) => x.email === email && x.hash === h);
-      let r;
-      try {
-        try { r = await SicCloud.signIn(email, pw); }
-        catch (e) { // บัญชีเดิมที่สมัครไว้ในเครื่องก่อนเปิดระบบออนไลน์ → ย้ายขึ้นออนไลน์อัตโนมัติ
-          if (legacy && /EMAIL_NOT_FOUND/.test(String(e.message))) r = await SicCloud.signUp(email, pw, legacy.name); else throw e;
-        }
-      } catch (e) { return toast(SicCloud.thaiErr(e)); }
-      const isT = r.role === 'teacher';
-      DB.session = { role: isT ? 'teacher' : 'player', name: isT ? (legacy ? legacy.name : email) : r.name, email }; save(); SicCloud.sync(); toast(isT ? 'เข้าสู่ระบบครูแล้ว' : 'เข้าสู่ระบบผู้เล่นแล้ว'); return go('home');
+  joinGo: async () => {
+    if (!ui.pid) return toast('เลือกชื่อก่อน');
+    if (cloudOn()) {
+      try { await SicCloud.claimAndLoadPlayer(ui.code, ui.pid); } catch (e) { return syncErr(e); }
     }
-    if (TEACHER_CODE_HASHES.includes(h)) { // รหัสครู → เข้าสู่ระบบครู
-      const u = DB.users.find((x) => x.email === email);
-      DB.session = { role: 'teacher', name: u ? u.name : email, email }; save(); toast('เข้าสู่ระบบครูแล้ว'); return go('home');
+    go('post', { tab: 'mission', post: null });
+  },
+  async googleLogin() {
+    if (!cloudOn() || ui.loginBusy) return;
+    ui.loginBusy = true; render();
+    try {
+      const s = await SicCloud.signInWithGoogle();
+      DB.session = { uid: s.uid, role: s.role, name: s.name, email: s.email, roomCode: s.roomCode };
+      save();
+      toast(s.role === 'teacher' ? 'เข้าสู่ระบบครูด้วย Google แล้ว' : 'เข้าสู่ระบบด้วย Google แล้ว');
+      ui.loginBusy = false;
+      go('home');
+    } catch (e) {
+      ui.loginBusy = false;
+      toast(SicCloud.thaiErr(e));
+      render();
     }
-    const u = DB.users.find((x) => x.email === email);
-    if (!u || u.hash !== h) return toast('อีเมลหรือรหัสผ่านไม่ถูกต้อง (ถ้ายังไม่มีบัญชี กด "สมัครสมาชิกใหม่")');
-    DB.session = { role: 'player', name: u.name, email }; save(); toast('เข้าสู่ระบบผู้เล่นแล้ว'); go('home');
   },
-  doCreate: () => {
-    const code = newCode(), lessonId = $('#cLesson').value;
-    DB.rooms[code] = { code, owner: DB.session.name, lessonId, status: 'lobby', city: 100, cityStart: 100, durationMin: 20, players: [], log: [], createdAt: Date.now() };
-    DB.session.roomCode = code; save(); ui.code = code; go('lobby');
+  async saveProfileName() {
+    const v = ($('#profileName') && $('#profileName').value || '').trim();
+    if (!v) return toast('กรุณากรอกชื่อ');
+    try {
+      const clean = cloudOn() ? await SicCloud.updateDisplayName(v) : v;
+      DB.session.name = clean; save(); toast('บันทึกชื่อแล้ว'); render();
+    } catch (e) { syncErr(e); }
   },
-  saveRoster: () => {
-    const r = room(); let n = 0;
+  async grantTeacher() {
+    const uidInput = ($('#newTeacherUid') && $('#newTeacherUid').value || '').trim();
+    if (!uidInput) return toast('กรุณากรอก UID ของครู');
+    try {
+      await SicCloud.grantTeacherAdmin(uidInput);
+      $('#newTeacherUid').value = '';
+      toast('เพิ่มสิทธิ์ครูให้บัญชีดังกล่าวแล้ว');
+    } catch (e) { syncErr(e); }
+  },
+  async doCreate() {
+    let code = newCode();
+    if (cloudOn()) {
+      for (let i = 0; i < 6; i++) {
+        if (await SicCloud.isRoomCodeAvailable(code)) break;
+        code = newCode();
+      }
+    }
+    const lessonId = $('#cLesson').value;
+    const u = DB.session;
+    const rm = { code, owner: u.name, ownerUid: u.uid, ownerName: u.name, memberUids: u.uid ? [u.uid] : [], roster: [], lessonId, status: 'lobby', city: 100, cityStart: 100, durationMin: 20, players: [], log: [], createdAt: Date.now() };
+    DB.rooms[code] = rm; DB.session.roomCode = code; save();
+    if (cloudOn()) {
+      try { await SicCloud.createRoom(rm); } catch (e) { return syncErr(e); }
+    }
+    ui.code = code; go('lobby');
+  },
+  async saveRoster() {
+    const r = room(); let n = 0; const removedIds = [];
     document.querySelectorAll('[data-reg]').forEach((i) => {
       const role = i.dataset.reg, name = i.value.trim(), p = r.players.find((x) => x.role === role);
       if (name && p) p.name = name;
       else if (name) r.players.push(newPlayer(name, role));
-      else if (p) r.players = r.players.filter((x) => x !== p);
+      else if (p) { removedIds.push(p.id); r.players = r.players.filter((x) => x !== p); }
       if (name) n++;
     });
-    save(); toast('บันทึกรายชื่อแล้ว (' + n + ' คน)'); render();
+    r.roster = r.players.map((p) => ({ id: p.id, name: p.name, role: p.role }));
+    save();
+    if (cloudOn()) {
+      try { await SicCloud.syncRoster(r.code, r, removedIds); } catch (e) { return syncErr(e); }
+    }
+    toast('บันทึกรายชื่อแล้ว (' + n + ' คน)'); render();
   },
-  saveSettings: () => {
+  async saveSettings() {
     const r = room(), d = parseInt($('#sDur').value, 10), c = parseInt($('#sCity').value, 10);
     if (!(d >= 20)) return toast('เวลาเล่นต้องไม่น้อยกว่า 20 นาที');
     if (!(c >= 1)) return toast('ดัชนีเมืองเริ่มต้นไม่ถูกต้อง');
-    r.durationMin = d; r.cityStart = c; r.city = c; save(); toast('บันทึกแล้ว'); render();
+    r.durationMin = d; r.cityStart = c; r.city = c; save();
+    if (cloudOn()) {
+      try { await SicCloud.saveRoomMeta(r.code, r); } catch (e) { return syncErr(e); }
+    }
+    toast('บันทึกแล้ว'); render();
   },
   startPre: (b) => {
     const r = room(), p = r && r.players.find((x) => x.id === b.dataset.pid);
@@ -587,7 +641,11 @@ const H = {
     L.pretest.forEach((q, i) => { sum[q.trait] = (sum[q.trait] || 0) + (P.scores[i] ? P.scores[i].score : 0); cnt[q.trait] = (cnt[q.trait] || 0) + 1; });
     p.pre = {}; TRAITS.forEach((t) => { p.pre[t.id] = cnt[t.id] ? sum[t.id] : TRAIT_MAX / 2; }); // เต็ม 6 ต่อคุณลักษณะ
     p.preScores = P.scores.map((x) => x.score);
-    p.traitGame = {}; save(); ui.pre = null; toast('บันทึกผล Pre-Test แล้ว'); go('lobby');
+    p.traitGame = {}; save();
+    if (cloudOn()) {
+      try { await SicCloud.savePlayer(r.code, p, r.ownerUid); } catch (e) { syncErr(e); }
+    }
+    ui.pre = null; toast('บันทึกผล Pre-Test แล้ว'); go('lobby');
   },
   startPost: () => go('post', { post: { ans: [], scores: [], i: 0, phase: 'read', busy: false } }),
   beginPost: () => examBegin(ui.post),
@@ -600,13 +658,29 @@ const H = {
     const p = r.players.find((x) => x.id === ui.pid), byTrait = {}; let total = 0;
     L.posttest.forEach((q, i) => { const v = P.scores[i] ? P.scores[i].score : 0; byTrait[q.trait] = (byTrait[q.trait] || 0) + v; total += v; });
     p.post = { score: total, byTrait, scores: P.scores.map((x) => x.score), at: Date.now() };
-    save(); toast('บันทึกผล Post-Test แล้ว'); go('post', { post: null, tab: 'post' });
+    save();
+    if (cloudOn()) {
+      try { await SicCloud.submitPostTest(r.code, p.id, p.post); } catch (e) { syncErr(e); }
+    }
+    toast('บันทึกผล Post-Test แล้ว'); go('post', { post: null, tab: 'post' });
   },
-  startGame: () => {
+  async startGame() {
     const r = room(); r.status = 'playing'; r.startedAt = Date.now(); r.endsAt = r.startedAt + r.durationMin * 60000; r.city = r.cityStart;
-    r.players.forEach((p) => { p.life = 0; p.coop = 0; p.step = 0; }); r.log = []; save(); ui.act = null; go('game');
+    r.players.forEach((p) => { p.life = 0; p.coop = 0; p.step = 0; }); r.log = []; save();
+    if (cloudOn()) {
+      try { await SicCloud.syncRoster(r.code, r, []); } catch (e) { syncErr(e); }
+    }
+    ui.act = null; go('game');
   },
-  forceEnd: () => { if (confirm('จบเกมตอนนี้และสรุปผลตามคะแนน?')) { endGame(room(), 'time'); save(); go('end'); } },
+  async forceEnd() {
+    if (confirm('จบเกมตอนนี้และสรุปผลตามคะแนน?')) {
+      const r = room(); endGame(r, 'time'); save();
+      if (cloudOn()) {
+        try { await SicCloud.saveRoomMeta(r.code, r); } catch (e) { syncErr(e); }
+      }
+      go('end');
+    }
+  },
   actCivic: () => startSetup('civic'),
   actTrait: () => startSetup('trait'),
   actEthics: () => startSetup('ethics'),
@@ -685,21 +759,11 @@ const H = {
       const title = (typeof it === 'object' && it.title) ? it.title : ('ช่องคุณลักษณะ: ' + traitName(a.trait));
       Object.assign(a, { title, q: qText, qItem: typeof it === 'string' ? null : it });
     }
-    // ช่องท้าทายจริยธรรม: สุ่มโจทย์ไม่ซ้ำจากคลังข้อสอบท้าทายจริยธรรม (20 ข้อ) แล้วตรวจว่าคำตอบตรงกับแนวคำตอบหรือไม่
+    // ช่องท้าทายจริยธรรม: สุ่มโจทย์จากข้อสอบ (Pre/Post) แล้วตรวจว่าคำตอบตรงกับแนวคำตอบของข้อสอบหรือไม่
     if (a.kind === 'ethics') {
-      const bank = (Array.isArray(L.ethics) && L.ethics.length) ? L.ethics : DEFAULT_LESSON.ethics;
-      if (!Array.isArray(r.usedEthics)) r.usedEthics = [];
-      let pool = bank.map((item, idx) => ({ item, idx })).filter((x) => !r.usedEthics.includes(x.idx));
-      if (!pool.length) { r.usedEthics = []; pool = bank.map((item, idx) => ({ item, idx })); }
-      const pick = rnd(pool);
-      r.usedEthics = [...r.usedEthics, pick.idx];
-      const it = pick.item;
-      Object.assign(a, {
-        trait: it.t || it.trait || TRAITS[0].id,
-        title: it.title || 'ช่องท้าทายจริยธรรม',
-        q: it.q,
-        qItem: it.keys ? it : null,
-      });
+      const examPool = () => [...L.pretest, ...L.posttest];
+      const it = rnd(examPool());
+      Object.assign(a, { trait: it.trait, title: 'ช่องท้าทายจริยธรรม', q: it.q, qItem: it });
     }
     Object.assign(a, { timed: true, stage: 'read' }); render();
   },
@@ -736,19 +800,27 @@ const H = {
   beginAct: () => { ui.act.stage = 'answer'; ui.act.startedAt = Date.now(); go('game'); const t = $('[data-bind=actText]'); if (t && t.focus) t.focus(); },
   cancelAct: () => { ui.act = null; go('game'); },
   submitAct: () => submitAnswer(false),
-  confirmAct: () => {
+  confirmAct: async () => {
     const a = ui.act, r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === a.pid), v = $('#vSel').value; let msg;
     if (a.kind === 'civic') msg = resolveCivic(r, L, p, a.owner, v, a.trait);
     if (a.kind === 'trait') msg = resolveTrait(r, L, p, a.trait, v === 'pass');
     if (a.kind === 'ethics') msg = resolveEthics(r, L, p, a.trait, v === 'pass');
     if (a.kind === 'audit') msg = resolveAudit(r, L, p, { score: +v });
     ui.notice = { who: p.name, title: a.title, msg }; ui.act = null; save(); toast(msg);
+    if (cloudOn()) {
+      SicCloud.saveRoomMeta(r.code, r).catch(syncErr);
+      SicCloud.savePlayer(r.code, p, r.ownerUid).catch(syncErr);
+    }
     if (r.status === 'ended') go('end'); else go('game');
   },
   adj: (b) => {
     const r = room(), p = b.dataset.pid ? r.players.find((x) => x.id === b.dataset.pid) : null, d = (+b.dataset.d) * ui.step, delta = [0, 0, 0];
     delta[{ life: 0, coop: 1, city: 2 }[b.dataset.f]] = d;
     applyDelta(r, p, delta, 'ปรับคะแนนด้วยตนเอง'); save();
+    if (cloudOn()) {
+      SicCloud.saveRoomMeta(r.code, r).catch(syncErr);
+      if (p) SicCloud.savePlayer(r.code, p, r.ownerUid).catch(syncErr);
+    }
     if (r.status === 'ended') go('end'); else render();
   },
   tab: (b) => go('post', { tab: b.dataset.t }),
@@ -757,23 +829,50 @@ const H = {
     if (Date.now() > r.endedAt + 3 * 864e5) return toast('หมดเวลา 3 วัน ถูกตัดสิทธิ์แล้ว');
     const f = document.querySelector(`[data-ev=${t}]`).files[0], desc = document.querySelector(`[data-evd=${t}]`).value.trim();
     if (!f || !desc) return toast('ต้องมีทั้งรูปและคำอธิบาย');
-    let img = await fileToDataURL(f), imgId = null; const ai = (await evaluate(desc, L, 'evidence')).verdict;
-    if (cloudOn() && SicCloud.loggedIn()) { try { toast('กำลังอัปโหลดรูปไปที่ Google Drive…'); const up = await SicCloud.upload(img, (p.name || 'player') + '_' + t); img = up.url; imgId = up.id; } catch (e) { /* อัปโหลดไม่ได้ → เก็บรูปในข้อมูลแทน */ } }
-    p.evidence[t] = { img, imgId, desc, ai, status: 'pending', at: Date.now() }; save(); toast('ส่งหลักฐานแล้ว รอครูตรวจ'); render();
+    const img = await fileToDataURL(f); const ai = (await evaluate(desc, L, 'evidence')).verdict;
+    const evObj = { img, desc, ai, status: 'pending', at: Date.now() };
+    p.evidence[t] = evObj; save();
+    if (cloudOn()) {
+      try { await SicCloud.submitEvidence(r.code, r.ownerUid || me().uid, p.id, t, evObj); }
+      catch (e) { return syncErr(e); }
+    }
+    toast('ส่งหลักฐานแล้ว รอครูตรวจ'); render();
   },
   print: () => window.print(),
   tTab: (b) => go('teacher', { tTab: b.dataset.t }),
-  saveLesson: () => {
-    try { const o = JSON.parse($('#lJson').value); o.id = ui.lessonId; if (!o.pretest || !o.posttest || !o.missions || !o.points || !o.keywords) throw 0; DB.lessons[DB.lessons.findIndex((l) => l.id === ui.lessonId)] = o; save(); toast('บันทึกแล้ว'); }
-    catch { toast('JSON ไม่ถูกต้องหรือโครงสร้างไม่ครบ'); }
+  saveLesson: async () => {
+    try {
+      const o = JSON.parse($('#lJson').value); o.id = ui.lessonId; if (!o.pretest || !o.posttest || !o.missions || !o.points || !o.keywords) throw 0;
+      DB.lessons[DB.lessons.findIndex((l) => l.id === ui.lessonId)] = o; save();
+      if (cloudOn()) await SicCloud.saveLesson(o).catch(syncErr);
+      toast('บันทึกแล้ว');
+    } catch { toast('JSON ไม่ถูกต้องหรือโครงสร้างไม่ครบ'); }
   },
-  copyLesson: () => { const o = JSON.parse(JSON.stringify(DB.lessons.find((l) => l.id === ui.lessonId))); o.id = 'l' + Date.now().toString(36); o.name += ' (สำเนา)'; DB.lessons.push(o); save(); go('teacher', { lessonId: o.id }); },
-  delLesson: () => { if (!confirm('ลบชุดนี้?')) return; DB.lessons = DB.lessons.filter((l) => l.id !== ui.lessonId); save(); go('teacher', { lessonId: null }); },
-  savePoints: () => {
+  copyLesson: async () => {
+    const o = JSON.parse(JSON.stringify(DB.lessons.find((l) => l.id === ui.lessonId))); o.id = 'l' + Date.now().toString(36); o.name += ' (สำเนา)';
+    DB.lessons.push(o); save();
+    if (cloudOn()) await SicCloud.saveLesson(o).catch(syncErr);
+    go('teacher', { lessonId: o.id });
+  },
+  delLesson: async () => {
+    if (!confirm('ลบชุดนี้?')) return;
+    const id = ui.lessonId;
+    DB.lessons = DB.lessons.filter((l) => l.id !== id); save();
+    if (cloudOn()) await SicCloud.deleteLesson(id).catch(syncErr);
+    go('teacher', { lessonId: null });
+  },
+  savePoints: async () => {
     const L = DB.lessons.find((l) => l.id === ui.lessonId);
-        L.passScore = parseInt($('#passScore').value, 10) || DEFAULT_LESSON.passScore; save(); toast('บันทึกแล้ว');
+    L.passScore = parseInt($('#passScore').value, 10) || DEFAULT_LESSON.passScore; save();
+    if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr);
+    toast('บันทึกแล้ว');
   },
-  rev: (b) => { const p = DB.rooms[b.dataset.code].players.find((x) => x.id === b.dataset.pid); p.evidence[b.dataset.t].status = b.dataset.s; save(); render(); },
+  rev: async (b) => {
+    const code = b.dataset.code, pid = b.dataset.pid, t = b.dataset.t, status = b.dataset.s;
+    const p = DB.rooms[code].players.find((x) => x.id === pid);
+    p.evidence[t].status = status; save(); render();
+    if (cloudOn()) await SicCloud.reviewEvidence(code, pid, t, status).catch(syncErr);
+  },
   exportCsv: () => {
     const r = DB.rooms[ui.tRoom || Object.values(DB.rooms)[0].code], L = lessonOf(r);
     const maxPost = L.posttest.length * EXAM_MAX, sum = (o) => (o ? Object.values(o).reduce((x, y) => x + y, 0) : '');
@@ -796,17 +895,34 @@ document.addEventListener('change', (e) => {
   ui[b] = e.target.value; if (b === 'tRoom' || b === 'slotRole' || b === 'slotTrait' || b === 'auditTarget') return; render();
 });
 
-// ===== ฐานข้อมูลออนไลน์ (Vercel API + Redis) =====
+// ===== ฐานข้อมูลออนไลน์ (Firebase Auth + Cloud Firestore) =====
 function startCloud() {
   if (!cloudOn()) return;
-  if (DB.session && !SicCloud.loggedIn()) { DB.session = null; try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} } // ต้องเข้าสู่ระบบใหม่เพื่อเชื่อมบัญชีออนไลน์
-  SicCloud.start({
+  SicCloud.init({
     getDB: () => DB,
-    onRemote: () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} const el = document.activeElement; if (!(el && /^(TEXTAREA|INPUT|SELECT)$/.test(el.tagName))) render(); },
+    onAuth: (sess) => {
+      if (!sess) {
+        DB = initDB();
+        save();
+        render();
+        return;
+      }
+      if (!DB.session || DB.session.uid !== sess.uid) {
+        DB = initDB();
+      }
+      DB.session = { uid: sess.uid, role: sess.role, name: sess.name, email: sess.email, roomCode: sess.roomCode };
+      save();
+      render();
+    },
+    onRemote: () => {
+      try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {}
+      const el = document.activeElement;
+      if (!(el && /^(TEXTAREA|INPUT|SELECT)$/.test(el.tagName))) render();
+    },
     onStatus: () => { const s = $('#cloudSt'); if (s) s.textContent = cloudLabel(); },
   });
 }
-function cloudLabel() { const s = window.SicCloud && SicCloud.status(); return !cloudOn() || !SicCloud.loggedIn() ? '' : s === 'ok' ? '☁ บันทึกออนไลน์แล้ว' : s === 'syncing' ? '☁ กำลังบันทึก…' : s === 'denied' ? '☁ ไม่มีสิทธิ์ (ตรวจ rules)' : s === 'offline' ? '☁ ออฟไลน์ (จะบันทึกเมื่อกลับมาออนไลน์)' : ''; }
+function cloudLabel() { const s = window.SicCloud && SicCloud.status(); return !cloudOn() || !SicCloud.loggedIn() ? '' : s === 'ok' ? '☁ ซิงก์คลาวด์แล้ว' : s === 'syncing' ? '☁ กำลังบันทึก…' : s === 'denied' ? '☁ ไม่มีสิทธิ์ (ตรวจ rules)' : s === 'offline' ? '☁ ออฟไลน์' : ''; }
 // ขอให้เบราว์เซอร์เก็บข้อมูลถาวร (ลดโอกาสถูกลบอัตโนมัติเมื่อพื้นที่เต็ม)
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 document.addEventListener('change', async (e) => {
@@ -816,11 +932,21 @@ document.addEventListener('change', async (e) => {
     if (!d || j.app !== 'smart-integrity-city' || typeof d.rooms !== 'object' || !Array.isArray(d.lessons)) throw new Error('bad');
     if (!confirm('กู้คืนจะนำห้อง/คะแนน/สมาชิก/ชุดสื่อจากไฟล์มาเพิ่ม (ถ้ารหัสห้องหรืออีเมลซ้ำ จะใช้ข้อมูลจากไฟล์) ดำเนินการต่อ?')) return;
     Object.assign(DB.rooms, d.rooms);
-    (d.users || []).forEach((u) => { const i = DB.users.findIndex((x) => x.email === u.email); if (i >= 0) DB.users[i] = u; else DB.users.push(u); });
     d.lessons.forEach((l) => { const i = DB.lessons.findIndex((x) => x.id === l.id); if (i >= 0) DB.lessons[i] = l; else DB.lessons.push(l); });
-    save(); toast('กู้คืนข้อมูลสำเร็จ'); render();
+    save();
+    if (cloudOn() && SicCloud.loggedIn()) {
+      for (const rm of Object.values(d.rooms)) {
+        try { await SicCloud.createRoom(rm); await SicCloud.syncRoster(rm.code, rm, []); } catch (err) {}
+      }
+      if (isTeacher()) {
+        for (const l of d.lessons) {
+          try { await SicCloud.saveLesson(l); } catch (err) {}
+        }
+      }
+    }
+    toast('กู้คืนข้อมูลสำเร็จ'); render();
   } catch (err) { toast('ไฟล์สำรองไม่ถูกต้อง'); }
   e.target.value = '';
 });
+if (cloudOn()) startCloud();
 render();
-if (window.SicCloud) SicCloud.detect().then((on) => { if (on) { startCloud(); render(); } }).catch(() => {});
