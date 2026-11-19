@@ -1,8 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
   signOut,
   onAuthStateChanged,
   User,
@@ -55,8 +56,6 @@ export interface FirestoreErrorInfo {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 const BOOTSTRAP_ADMIN_EMAIL = 'teeranop.ch@gmail.com';
 
@@ -115,6 +114,7 @@ export interface CloudHooks {
 let hooks: CloudHooks | null = null;
 let currentSession: CloudSession | null = null;
 let ready = false;
+let authBusyDepth = 0;
 let cloudStatus: 'idle' | 'syncing' | 'ok' | 'denied' | 'offline' = 'idle';
 let unsubs: Unsubscribe[] = [];
 const roomSubUnsubs = new Map<string, Unsubscribe[]>();
@@ -152,6 +152,16 @@ function sanitizeName(name: string | null | undefined, fallback = 'ผู้เ�
   return (s || fallback).slice(0, 80);
 }
 
+async function nameToAuthEmail(username: string): Promise<string> {
+  const norm = String(username || '').trim().toLowerCase();
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(norm));
+  const hex = [...new Uint8Array(buf)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 24);
+  return `u_${hex}@sic.app`;
+}
+
 function sanitizeRoomForSave(room: any, ownerUid: string, ownerName: string) {
   const roster = Array.isArray(room.players)
     ? room.players.slice(0, 6).map((p: any) => ({
@@ -161,9 +171,10 @@ function sanitizeRoomForSave(room: any, ownerUid: string, ownerName: string) {
       }))
     : [];
   const log = Array.isArray(room.log) ? room.log.slice(-400) : [];
-  const memberUids = Array.isArray(room.memberUids) && room.memberUids.length
-    ? Array.from(new Set(room.memberUids.map(String))).slice(0, 30)
-    : [ownerUid];
+  const memberUids =
+    Array.isArray(room.memberUids) && room.memberUids.length
+      ? Array.from(new Set(room.memberUids.map(String))).slice(0, 30)
+      : [ownerUid];
   return {
     code: String(room.code || '').toUpperCase().slice(0, 6),
     ownerUid: String(room.ownerUid || ownerUid).slice(0, 128),
@@ -248,7 +259,12 @@ function mergeRemoteRoom(roomData: any) {
     usedAudit: roomData.usedAudit || {},
     usedHelp: roomData.usedHelp || {},
     usedTrait: roomData.usedTrait || {},
-    createdAt: typeof roomData.createdAt?.toMillis === 'function' ? roomData.createdAt.toMillis() : (typeof roomData.createdAt === 'number' ? roomData.createdAt : existing.createdAt || Date.now()),
+    createdAt:
+      typeof roomData.createdAt?.toMillis === 'function'
+        ? roomData.createdAt.toMillis()
+        : typeof roomData.createdAt === 'number'
+        ? roomData.createdAt
+        : existing.createdAt || Date.now(),
     players: mergedPlayers,
   });
 }
@@ -499,10 +515,11 @@ function startListeners(session: CloudSession) {
   }
 }
 
-async function resolveUserProfile(user: User): Promise<CloudSession> {
+async function resolveUserProfile(user: User, preferredName?: string, teacherSecret?: string): Promise<CloudSession> {
   const uid = user.uid;
   const email = (user.email || '').trim();
-  const isBootstrapAdmin = email.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL;
+  const isBootstrapAdmin = user.emailVerified && email.toLowerCase() === BOOTSTRAP_ADMIN_EMAIL;
+
   let hasAdminDoc = false;
   if (!isBootstrapAdmin) {
     try {
@@ -512,6 +529,20 @@ async function resolveUserProfile(user: User): Promise<CloudSession> {
       hasAdminDoc = false;
     }
   }
+
+  if (!isBootstrapAdmin && !hasAdminDoc && teacherSecret) {
+    try {
+      await setDoc(doc(db, 'admins', uid), {
+        uid,
+        teacherCode: teacherSecret.slice(0, 64),
+        createdAt: serverTimestamp(),
+      });
+      hasAdminDoc = true;
+    } catch {
+      hasAdminDoc = false;
+    }
+  }
+
   const isAdminUser = isBootstrapAdmin || hasAdminDoc;
   const userRef = doc(db, 'users', uid);
   let userSnap;
@@ -521,7 +552,7 @@ async function resolveUserProfile(user: User): Promise<CloudSession> {
     handleFirestoreError(error, OperationType.GET, `users/${uid}`);
   }
 
-  let name = sanitizeName(user.displayName || email.split('@')[0] || 'ผู้เล่น');
+  let name = sanitizeName(preferredName || user.displayName || 'ผู้เล่น');
   let role: 'player' | 'teacher' = isAdminUser ? 'teacher' : 'player';
   let roomCode = '';
 
@@ -582,6 +613,7 @@ function init(h: CloudHooks) {
   hooks = h;
   testConnection();
   onAuthStateChanged(auth, async (user) => {
+    if (authBusyDepth > 0) return;
     ready = true;
     if (!user) {
       currentSession = null;
@@ -605,13 +637,67 @@ function init(h: CloudHooks) {
   });
 }
 
-async function signInWithGoogle(): Promise<CloudSession> {
-  const res = await signInWithPopup(auth, googleProvider);
-  const sess = await resolveUserProfile(res.user);
-  currentSession = sess;
-  startListeners(sess);
-  setStatus('ok');
-  return sess;
+async function registerWithName(username: string, password: string): Promise<CloudSession> {
+  const cleanName = sanitizeName(username);
+  const authEmail = await nameToAuthEmail(cleanName);
+  authBusyDepth++;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, authEmail, password);
+    try {
+      await updateProfile(cred.user, { displayName: cleanName });
+    } catch {
+      /* ignore displayName error */
+    }
+    const sess = await resolveUserProfile(cred.user, cleanName);
+    currentSession = sess;
+    ready = true;
+    startListeners(sess);
+    setStatus('ok');
+    return sess;
+  } finally {
+    authBusyDepth = Math.max(0, authBusyDepth - 1);
+  }
+}
+
+async function loginWithName(username: string, password: string, isTeacherCode = false): Promise<CloudSession> {
+  const cleanName = sanitizeName(username);
+  const authEmail = await nameToAuthEmail(cleanName);
+  authBusyDepth++;
+  try {
+    let user: User;
+    try {
+      const cred = await signInWithEmailAndPassword(auth, authEmail, password);
+      user = cred.user;
+    } catch (err: any) {
+      const code = String(err?.code || err?.message || '');
+      if (isTeacherCode && /user-not-found|invalid-credential|invalid-login-credentials/i.test(code)) {
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, authEmail, password);
+          try {
+            await updateProfile(cred.user, { displayName: cleanName });
+          } catch {
+            /* ignore */
+          }
+          user = cred.user;
+        } catch (createErr: any) {
+          if (/email-already-in-use/i.test(String(createErr?.code || createErr?.message || ''))) {
+            throw err;
+          }
+          throw createErr;
+        }
+      } else {
+        throw err;
+      }
+    }
+    const sess = await resolveUserProfile(user, cleanName, isTeacherCode ? password : undefined);
+    currentSession = sess;
+    ready = true;
+    startListeners(sess);
+    setStatus('ok');
+    return sess;
+  } finally {
+    authBusyDepth = Math.max(0, authBusyDepth - 1);
+  }
 }
 
 async function logout(): Promise<void> {
@@ -1075,12 +1161,14 @@ async function grantTeacherAdmin(targetUid: string): Promise<void> {
 
 const thaiErr = (e: unknown): string => {
   const m = String((e as any)?.code || (e as any)?.message || e);
-  if (/popup-closed-by-user/i.test(m)) return 'ยกเลิกการเข้าสู่ระบบด้วย Google';
-  if (/popup-blocked/i.test(m)) return 'เบราว์เซอร์บล็อกหน้าต่างป๊อปอัป กรุณาอนุญาตป๊อปอัปแล้วลองใหม่';
-  if (/unauthorized-domain/i.test(m)) return 'โดเมนนี้ยังไม่ได้รับอนุญาตใน Firebase Auth';
+  if (/email-already-in-use/i.test(m)) return 'ชื่อผู้ใช้นี้มีบัญชีแล้ว กรุณาเข้าสู่ระบบหรือใช้ชื่ออื่น';
+  if (/wrong-password|user-not-found|invalid-credential|invalid-login-credentials/i.test(m)) return 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (ถ้ายังไม่มีบัญชี กด "สมัครสมาชิกใหม่")';
+  if (/weak-password/i.test(m)) return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+  if (/operation-not-allowed/i.test(m)) return 'ต้องเปิดใช้งาน Email/Password ใน Firebase Console ก่อน (Authentication → Sign-in method → Email/Password → Enable)';
+  if (/too-many-requests/i.test(m)) return 'ลองเข้าสู่ระบบหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่';
   if (/network-request-failed|offline|Failed to fetch/i.test(m)) return 'เชื่อมต่ออินเทอร์เน็ตหรือเซิร์ฟเวอร์ไม่ได้';
   if (/permission-denied|Missing or insufficient permissions/i.test(m)) return 'ไม่มีสิทธิ์เข้าถึงข้อมูลนี้';
-  if (/Quota exceeded/i.test(m)) return 'เกินโควต้าการใช้งานรายวันของฐานข้อมูล กรุณารอรีเซ็ตวันถัดไปหรืออัปเกรดแผน';
+  if (/Quota exceeded/i.test(m)) return 'เกินโควต้าการใช้งานรายวันของฐานข้อมูล กรุณารอรีเซ็ตวันถัดไป';
   if (/INVALID_UID/i.test(m)) return 'รูปแบบ UID ไม่ถูกต้อง';
   return 'เกิดข้อผิดพลาด: ' + m;
 };
@@ -1094,7 +1182,8 @@ const SicCloud = {
   session: () => currentSession,
   status: () => cloudStatus,
   init,
-  signInWithGoogle,
+  registerWithName,
+  loginWithName,
   logout,
   updateDisplayName,
   updateActiveRoomCode,

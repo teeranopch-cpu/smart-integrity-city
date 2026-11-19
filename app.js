@@ -33,7 +33,7 @@ const cloudOn = () => !!(window.SicCloud && window.SicCloud.enabled());
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { toast('พื้นที่จัดเก็บในเครื่องเต็ม'); } };
 const syncErr = (e) => toast(cloudOn() ? window.SicCloud.thaiErr(e) : 'บันทึกข้อมูลไม่สำเร็จ');
 
-let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 1, cSet: 'pretest', cIdx: 0, cText: '', loginBusy: false };
+let ui = { view: 'home', code: null, pid: null, act: null, actor: null, slotRole: ROLES[0].id, slotTrait: TRAITS[0].id, auditTarget: null, pre: null, post: null, tab: 'lessons', authMode: 'login', lessonId: null, radarPid: null, tTab: 'lessons', tRoom: null, step: 1, cSet: 'pretest', cIdx: 0, cText: '', loginBusy: false, needEnableEmailAuth: false };
 
 // ===== ตัวช่วย =====
 const $ = (s) => document.querySelector(s);
@@ -100,11 +100,18 @@ function vLogin() {
   if (cloudOn() && !SicCloud.authReady()) {
     return `<div class="card" style="max-width:440px;margin:24px auto;text-align:center"><div class="logo"><img src="assets/logo.jpg" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>กำลังเชื่อมต่อระบบคลาวด์…</h2><p class="muted">กำลังตรวจสอบสถานะการเข้าสู่ระบบ กรุณารอสักครู่</p></div>`;
   }
-  const gIcon = `<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.45a5.52 5.52 0 0 1-2.39 3.62v3.01h3.87c2.26-2.08 3.56-5.15 3.56-8.66z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.07 7.93-2.91l-3.87-3.01c-1.07.72-2.44 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.95H1.28v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.28 14.28A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.38-2.28v-3.1H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.38l4-3.1z"/><path fill="#EA4335" d="M12 4.77c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.62l4 3.1C6.23 6.88 8.88 4.77 12 4.77z"/></svg>`;
-  return `<div class="card" style="max-width:440px;margin:24px auto"><div class="logo"><img src="assets/logo.jpg" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>เข้าสู่ระบบ</h2>
-    <p class="muted">เข้าสู่ระบบด้วยบัญชี Google เพื่อให้ห้องเรียน รายชื่อผู้เล่น คะแนน ผลสอบ และหลักฐานซิงก์บนคลาวด์และเข้าใช้งานได้ต่อเนื่องจากทุกเครื่อง</p>
-    <p><button class="google-btn" data-act="googleLogin" ${ui.loginBusy ? 'disabled' : ''}>${gIcon}<span>${ui.loginBusy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบด้วย Google'}</span></button></p>
-    <p class="muted" style="font-size:.82rem">• ครู/ผู้สอนที่ได้รับสิทธิ์จะเข้าสู่ระบบหลังบ้านครูได้อัตโนมัติจากทุกอุปกรณ์<br>• นักเรียนใช้บัญชี Google ของตนเองค้นหารหัสห้องเพื่อส่งภารกิจชีวิตจริง ทำ Post-Test และพิมพ์เกียรติบัตร</p></div>`;
+  const reg = ui.authMode === 'register';
+  const setupHint = ui.needEnableEmailAuth
+    ? `<div class="result" style="margin-top:12px;border-color:var(--warn)"><b>ต้องเปิดใช้งาน Name/Password (Email/Password) ใน Firebase Console ก่อน 1 ครั้ง</b><div class="muted" style="font-size:.82rem;margin-top:4px">1. เปิด Firebase Console → Authentication → Sign-in method<br>2. กด Add new provider → เลือก Email/Password → เปิด Enable → Save<br>3. กลับมาหน้านี้แล้วกด${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}อีกครั้ง</div></div>`
+    : '';
+  return `<div class="card" style="max-width:420px;margin:24px auto"><div class="logo"><img src="assets/logo.jpg" alt="Smart Integrity City บอร์ดเกมการศึกษา พลิกโฉมเมืองสุจริตอัจฉริยะ"></div><h2>${reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}</h2>
+    <label>ชื่อ</label><input id="${reg ? 'rName' : 'lName'}" autocomplete="username" placeholder="ชื่อของคุณ (ใช้เข้าสู่ระบบ)">
+    <label>${reg ? 'รหัสผ่าน (อย่างน้อย 6 ตัว)' : 'รหัสผ่าน / รหัสครู'}</label><input id="lCode" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}">
+    ${reg ? '<label>ยืนยันรหัสผ่าน</label><input id="rPw2" type="password" autocomplete="new-password">' : ''}
+    <p class="row"><button data-act="${reg ? 'doRegister' : 'doLogin'}" ${ui.loginBusy ? 'disabled' : ''}>${ui.loginBusy ? 'กำลังดำเนินการ…' : (reg ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ')}</button>
+    <button class="alt" data-act="authMode" data-m="${reg ? 'login' : 'register'}" ${ui.loginBusy ? 'disabled' : ''}>${reg ? 'มีบัญชีแล้ว' : 'สมัครสมาชิกใหม่'}</button></p>
+    ${reg ? '' : '<p class="muted">ถ้าใส่รหัสครูในช่องรหัสผ่านจะเข้าสู่ระบบครู นอกเหนือจากนั้นเข้าสู่ระบบผู้เล่นปกติด้วยชื่อและรหัสผ่านที่สมัครไว้</p>'}
+    <p class="muted" style="font-size:.85rem">บัญชี ห้องเรียน และคะแนนถูกบันทึกบนคลาวด์ ใช้ชื่อและรหัสผ่านเดิมเข้าสู่ระบบต่อจากเครื่องอื่นได้</p>${setupHint}</div>`;
 }
 
 function vHome() {
@@ -112,7 +119,7 @@ function vHome() {
   const rooms = Object.values(DB.rooms || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return `
   <div class="card"><div class="logo sm"><img src="assets/logo.jpg" alt="Smart Integrity City"></div>
-    <p>สวัสดี <b>${esc(u.name)}</b> ${u.email ? `<span class="muted">(${esc(u.email)})</span>` : ''}</p>
+    <p>สวัสดี <b>${esc(u.name)}</b></p>
     <div class="row"><input id="profileName" value="${esc(u.name)}" placeholder="ชื่อที่แสดงในเกม" style="max-width:260px"><button class="alt" data-act="saveProfileName">บันทึกชื่อ</button></div>
     ${u.uid ? `<p class="muted" style="font-size:.8rem;margin-top:8px">รหัสผู้ใช้ (UID): <code>${esc(u.uid)}</code></p>` : ''}
   </div>
@@ -384,7 +391,7 @@ function vTeacher() {
   if (ui.tTab === 'export') {
     body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้อง</p>';
     body += `<div class="card"><h3>สำรอง/กู้คืนข้อมูลทั้งหมด</h3><p class="muted">ข้อมูลบัญชี ห้อง คะแนน ผลสอบ และรูปหลักฐานถูกบันทึกในฐานข้อมูลออนไลน์ (Firebase) อัตโนมัติ สามารถเข้าสู่ระบบจากเครื่องอื่นได้ทันที และยังส่งออกเป็นไฟล์สำรองได้</p><div class="row"><button data-act="backup">ดาวน์โหลดไฟล์สำรอง</button><button class="alt" data-act="restorePick">กู้คืนจากไฟล์สำรอง</button><input type="file" id="restoreFile" accept="application/json,.json" style="display:none"></div></div>`;
-    body += `<div class="card"><h3>เพิ่มสิทธิ์ครูสำหรับบัญชี Google อื่น</h3><p class="muted">ให้ครูท่านอื่นเข้าสู่ระบบด้วย Google แล้วคัดลอกรหัสผู้ใช้ (UID) จากหน้าแรกมาเพิ่มที่นี่ เพื่อให้เข้าหลังบ้านครูได้จากทุกเครื่อง</p><div class="row"><input id="newTeacherUid" placeholder="วาง UID ของครูที่ต้องการเพิ่ม"><button data-act="grantTeacher">เพิ่มสิทธิ์ครู</button></div></div>`;
+    body += `<div class="card"><h3>เพิ่มสิทธิ์ครูสำหรับบัญชีอื่น</h3><p class="muted">ให้ครูท่านอื่นเข้าสู่ระบบด้วยชื่อและรหัสผ่าน แล้วคัดลอกรหัสผู้ใช้ (UID) จากหน้าแรกมาเพิ่มที่นี่ หรือใช้รหัสครูตอนเข้าสู่ระบบ</p><div class="row"><input id="newTeacherUid" placeholder="วาง UID ของครูที่ต้องการเพิ่ม"><button data-act="grantTeacher">เพิ่มสิทธิ์ครู</button></div></div>`;
   }
   if (ui.tTab === 'calib') {
     const sets = [['pretest', 'Pre-Test'], ['posttest', 'Post-Test']], cs = ui.cSet || 'pretest', ci = Math.min(ui.cIdx || 0, L[cs].length - 1), cq = L[cs][ci], th = Object.assign({}, SIM_DEFAULT, L.exam || {});
@@ -546,21 +553,62 @@ const H = {
     }
     go('post', { tab: 'mission', post: null });
   },
-  async googleLogin() {
-    if (!cloudOn() || ui.loginBusy) return;
-    ui.loginBusy = true; render();
-    try {
-      const s = await SicCloud.signInWithGoogle();
-      DB.session = { uid: s.uid, role: s.role, name: s.name, email: s.email, roomCode: s.roomCode };
-      save();
-      toast(s.role === 'teacher' ? 'เข้าสู่ระบบครูด้วย Google แล้ว' : 'เข้าสู่ระบบด้วย Google แล้ว');
-      ui.loginBusy = false;
-      go('home');
-    } catch (e) {
-      ui.loginBusy = false;
-      toast(SicCloud.thaiErr(e));
-      render();
+  authMode: (b) => go('login', { authMode: b.dataset.m, needEnableEmailAuth: false }),
+  async doRegister() {
+    if (ui.loginBusy) return;
+    const name = ($('#rName') && $('#rName').value || '').trim(), pw = ($('#lCode') && $('#lCode').value || ''), pw2 = ($('#rPw2') && $('#rPw2').value || '');
+    if (!name) return toast('กรอกชื่อของคุณก่อน');
+    if (pw.length < 6) return toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัว');
+    if (pw !== pw2) return toast('ยืนยันรหัสผ่านไม่ตรงกัน');
+    if (TEACHER_CODE_HASHES.includes(await sha(pw))) return toast('รหัสผ่านนี้ใช้ไม่ได้ กรุณาตั้งรหัสอื่น');
+    if (cloudOn()) {
+      ui.loginBusy = true; ui.needEnableEmailAuth = false; render();
+      try {
+        const s = await SicCloud.registerWithName(name, pw);
+        DB.session = { uid: s.uid, role: s.role, name: s.name, roomCode: s.roomCode };
+        save();
+        ui.loginBusy = false;
+        toast('สมัครสมาชิกสำเร็จ (บันทึกลงคลาวด์แล้ว)');
+        return go('home', { authMode: 'login' });
+      } catch (e) {
+        ui.loginBusy = false;
+        if (/operation-not-allowed/i.test(String(e && (e.code || e.message)))) ui.needEnableEmailAuth = true;
+        toast(SicCloud.thaiErr(e));
+        return render();
+      }
     }
+    if (DB.users.find((u) => u.name.toLowerCase() === name.toLowerCase())) return toast('ชื่อนี้สมัครสมาชิกแล้ว');
+    DB.users.push({ name, hash: await sha(pw) });
+    DB.session = { role: 'player', name }; save(); toast('สมัครสมาชิกสำเร็จ'); go('home', { authMode: 'login' });
+  },
+  async doLogin() {
+    if (ui.loginBusy) return;
+    const name = ($('#lName') && $('#lName').value || '').trim(), pw = ($('#lCode') && $('#lCode').value || '');
+    if (!name || !pw) return toast('กรอกชื่อและรหัสผ่าน');
+    const h = await sha(pw);
+    const isTCode = TEACHER_CODE_HASHES.includes(h);
+    if (cloudOn()) {
+      ui.loginBusy = true; ui.needEnableEmailAuth = false; render();
+      try {
+        const s = await SicCloud.loginWithName(name, pw, isTCode);
+        DB.session = { uid: s.uid, role: s.role, name: s.name, roomCode: s.roomCode };
+        save();
+        ui.loginBusy = false;
+        toast(s.role === 'teacher' ? 'เข้าสู่ระบบครูแล้ว' : 'เข้าสู่ระบบผู้เล่นแล้ว');
+        return go('home');
+      } catch (e) {
+        ui.loginBusy = false;
+        if (/operation-not-allowed/i.test(String(e && (e.code || e.message)))) ui.needEnableEmailAuth = true;
+        toast(SicCloud.thaiErr(e));
+        return render();
+      }
+    }
+    if (isTCode) {
+      DB.session = { role: 'teacher', name }; save(); toast('เข้าสู่ระบบครูแล้ว'); return go('home');
+    }
+    const u = DB.users.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (!u || u.hash !== h) return toast('ชื่อหรือรหัสผ่านไม่ถูกต้อง (ถ้ายังไม่มีบัญชี กด "สมัครสมาชิกใหม่")');
+    DB.session = { role: 'player', name: u.name }; save(); toast('เข้าสู่ระบบผู้เล่นแล้ว'); go('home');
   },
   async saveProfileName() {
     const v = ($('#profileName') && $('#profileName').value || '').trim();
@@ -910,7 +958,7 @@ function startCloud() {
       if (!DB.session || DB.session.uid !== sess.uid) {
         DB = initDB();
       }
-      DB.session = { uid: sess.uid, role: sess.role, name: sess.name, email: sess.email, roomCode: sess.roomCode };
+      DB.session = { uid: sess.uid, role: sess.role, name: sess.name, roomCode: sess.roomCode };
       save();
       render();
     },

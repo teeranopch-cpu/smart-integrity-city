@@ -88,13 +88,19 @@
           "minLength": 1,
           "maxLength": 128
         },
+        "teacherCode": {
+          "type": "string",
+          "description": "Verified teacher access code checked by security rules hash",
+          "minLength": 1,
+          "maxLength": 64
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
           "description": "Server creation timestamp"
         }
       },
-      "required": ["uid", "grantedBy", "createdAt"]
+      "required": ["uid", "createdAt"]
     },
     "Room": {
       "title": "Room",
