@@ -211,16 +211,23 @@ function vGame() {
 
 function vNfcBox() {
   const hasWebNfc = typeof window !== 'undefined' && 'NDEFReader' in window;
+  const inIframe = typeof window !== 'undefined' && window.self !== window.top;
   const statusTxt = nfc.scanning
     ? '📡 กำลังรอรับสัญญาณ NFC — นำการ์ดมาแตะได้เลย'
     : nfc.err
     ? '⚠️ ' + esc(nfc.err)
+    : hasWebNfc && inIframe
+    ? '⚠️ เบราว์เซอร์บล็อก Web NFC เมื่อเปิดในกรอบตัวอย่าง — ให้เปิดแอปในแท็บเต็มจอ (หรือใช้เครื่องอ่าน USB NFC)'
     : hasWebNfc
-    ? '📡 พร้อมใช้งาน NFC (แตะการ์ดบนมือถือหรือเครื่องอ่าน USB NFC)'
+    ? '📡 กด "เปิดรับสัญญาณ NFC" เพื่อแตะการ์ดบนมือถือ หรือแตะผ่านเครื่องอ่าน USB NFC ได้ทันที'
     : '📡 พร้อมใช้งานเครื่องอ่านการ์ด USB NFC (แตะการ์ดได้ทันที)';
+  const openFullLink = inIframe && hasWebNfc
+    ? `<a class="alt" style="display:inline-block;padding:8px 14px;border:1px solid #8fb0dc;border-radius:8px;text-decoration:none;color:#fff" href="${esc(location.href)}" target="_blank" rel="noopener">เปิดหน้าจอเต็มเพื่อใช้ NFC</a>`
+    : '';
   return `<div class="card"><h3>แตะการ์ด NFC</h3>
     <p class="muted">${statusTxt}</p>
-    ${hasWebNfc && !nfc.scanning ? '<p><button data-act="startNfc">เปิดรับสัญญาณ NFC</button></p>' : ''}
+    ${nfc.lastRaw ? `<p class="muted" style="font-size:.82rem">รหัสที่สแกนล่าสุด: <code>${esc(nfc.lastRaw)}</code></p>` : ''}
+    ${(hasWebNfc && !nfc.scanning) || openFullLink ? `<p class="row">${hasWebNfc && !nfc.scanning && !inIframe ? '<button data-act="startNfc">เปิดรับสัญญาณ NFC</button>' : ''}${openFullLink}</p>` : ''}
     <div class="row"><input id="nfcUidInput" placeholder="แตะการ์ดผ่านเครื่องอ่าน USB NFC หรือกรอกรหัส UID เช่น 04:A5:74:AA:7E:26:81"><button class="alt" data-act="tapNfcInput">แตะการ์ด</button></div>
   </div>`;
 }
@@ -958,6 +965,14 @@ const H = {
 
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (!b) return; e.preventDefault(); const f = H[b.dataset.act]; if (f) f(b); });
 document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'nfcUidInput' && isGamePlaying()) {
+    const val = e.target.value;
+    if (resolveNfcCard(val)) {
+      e.target.value = '';
+      handleNfcUid(val);
+    }
+    return;
+  }
   const b = e.target.dataset && e.target.dataset.bind;
   if (b === 'examAns') { const P = e.target.dataset.k === 'post' ? ui.post : ui.pre; if (P) P.ans[+e.target.dataset.i] = e.target.value; }
   if (b === 'actText' && ui.act) ui.act.text = e.target.value;
@@ -969,15 +984,29 @@ document.addEventListener('change', (e) => {
 });
 
 // ===== ระบบแตะการ์ด NFC (ทำงานเฉพาะเมื่อเริ่มเกมแล้วเท่านั้น) =====
-const nfc = { scanning: false, ctrl: null, err: '', lastUid: '', lastAt: 0, buf: '', bufAt: 0 };
+const nfc = { scanning: false, ctrl: null, err: '', lastRaw: '', lastUid: '', lastAt: 0, buf: '', bufAt: 0, timer: null };
+const NFC_MOD_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'NumLock', 'ScrollLock']);
 function isGamePlaying() {
   const r = ui.code && DB.rooms[ui.code];
   return ui.view === 'game' && !!r && r.status === 'playing' && !ui.pre && !ui.post;
 }
 function stopNfc() {
   if (nfc.ctrl) { try { nfc.ctrl.abort(); } catch (e) {} nfc.ctrl = null; }
+  if (nfc.timer) { clearTimeout(nfc.timer); nfc.timer = null; }
   nfc.scanning = false;
   nfc.buf = '';
+}
+function decodeNdefText(rec) {
+  try {
+    if (!rec || !rec.data) return '';
+    const dv = rec.data instanceof DataView ? rec.data : new DataView(rec.data.buffer || rec.data);
+    if (!dv.byteLength) return '';
+    const langLen = dv.getUint8(0) & 0x3f;
+    const start = 1 + langLen;
+    if (start >= dv.byteLength) return new TextDecoder().decode(dv);
+    const bytes = new Uint8Array(dv.buffer, dv.byteOffset + start, dv.byteLength - start);
+    return new TextDecoder(rec.encoding || 'utf-8').decode(bytes);
+  } catch (e) { return ''; }
 }
 async function maybeAutoStartNfc() {
   if (!isGamePlaying() || nfc.scanning || !('NDEFReader' in window)) return;
@@ -991,7 +1020,13 @@ async function maybeAutoStartNfc() {
 async function startNfc(silent = false) {
   if (!isGamePlaying()) return;
   if (typeof window === 'undefined' || !('NDEFReader' in window)) {
-    if (!silent) toast('เบราว์เซอร์นี้ไม่รองรับ Web NFC (ใช้เครื่องอ่าน USB NFC หรือกรอกรหัสได้)');
+    if (!silent) toast('เบราว์เซอร์นี้ไม่รองรับ Web NFC (ใช้ได้บน Chrome Android หรือใช้เครื่องอ่าน USB NFC)');
+    return;
+  }
+  if (window.self !== window.top) {
+    nfc.err = 'Web NFC ใช้งานไม่ได้ในกรอบตัวอย่าง กรุณาเปิดแอปในแท็บใหม่บน Chrome Android';
+    if (!silent) toast(nfc.err);
+    render();
     return;
   }
   if (nfc.scanning) return;
@@ -1005,35 +1040,45 @@ async function startNfc(silent = false) {
     nfc.scanning = true;
     reader.addEventListener('readingerror', () => {
       if (!isGamePlaying()) return;
-      toast('อ่านการ์ด NFC ไม่สำเร็จ ลองแตะใหม่อีกครั้ง');
+      toast('อ่านการ์ด NFC ไม่สำเร็จ (ตรวจสอบว่าการ์ดเป็น NTAG/NDEF หรือแตะค้างไว้ 1 วินาที)');
     });
     reader.addEventListener('reading', (ev) => {
       if (!isGamePlaying()) return;
-      let uid = ev && ev.serialNumber ? ev.serialNumber : '';
+      let uid = ev && ev.serialNumber ? String(ev.serialNumber) : '';
       if (!resolveNfcCard(uid) && ev && ev.message && Array.isArray(ev.message.records)) {
         for (const rec of ev.message.records) {
-          if (rec.recordType === 'text' && rec.data) {
-            try {
-              const txt = new TextDecoder().decode(rec.data);
-              if (resolveNfcCard(txt)) { uid = txt; break; }
-            } catch (e) {}
-          }
+          const txt = rec.recordType === 'text'
+            ? decodeNdefText(rec)
+            : (rec.data ? new TextDecoder().decode(rec.data) : '');
+          if (resolveNfcCard(txt)) { uid = txt; break; }
+          if (!uid && txt) uid = txt;
         }
       }
-      if (uid) handleNfcUid(uid);
+      if (!uid) {
+        nfc.lastRaw = '(ไม่มี UID จากแท็กนี้)';
+        toast('ตรวจพบแท็ก NFC แต่เบราว์เซอร์ไม่ได้ส่งรหัส UID ของการ์ดนี้');
+        render();
+        return;
+      }
+      handleNfcUid(uid);
     });
     render();
   } catch (e) {
     nfc.scanning = false;
     nfc.ctrl = null;
     const name = e && e.name ? e.name : '';
-    if (!silent) {
-      nfc.err = name === 'NotAllowedError'
-        ? 'ไม่ได้รับอนุญาตให้ใช้ NFC กรุณาอนุญาตสิทธิ์ NFC ของเบราว์เซอร์'
-        : 'เปิดใช้ NFC ไม่สำเร็จ: ' + (e && e.message ? e.message : 'ไม่รองรับบนอุปกรณ์นี้');
-      toast(nfc.err);
-      render();
+    const msg = e && e.message ? e.message : '';
+    if (name === 'NotAllowedError') {
+      nfc.err = silent ? 'กดปุ่ม "เปิดรับสัญญาณ NFC" เพื่ออนุญาตการใช้งาน NFC' : 'ไม่ได้รับอนุญาตให้ใช้ NFC กรุณากดอนุญาตสิทธิ์ NFC ของเบราว์เซอร์';
+    } else if (name === 'NotSupportedError' || name === 'NotReadableError') {
+      nfc.err = 'เครื่องนี้ไม่รองรับหรือยังไม่ได้เปิด NFC ในการตั้งค่าโทรศัพท์';
+    } else if (name === 'SecurityError' || /top-level/i.test(msg)) {
+      nfc.err = 'Web NFC ต้องเปิดแบบเต็มหน้าจอ (แท็บหลักบน HTTPS) จึงจะสแกนได้';
+    } else {
+      nfc.err = 'เปิดใช้ NFC ไม่สำเร็จ: ' + (msg || name || 'ไม่รองรับบนอุปกรณ์นี้');
     }
+    if (!silent) toast(nfc.err);
+    render();
   }
 }
 function handleNfcUid(rawUid) {
@@ -1041,16 +1086,19 @@ function handleNfcUid(rawUid) {
   const r = room();
   if (!r || r.status !== 'playing') return;
   if (ui.act && ui.act.busy) return;
-  const norm = normalizeNfcUid(rawUid);
+  const trimmed = String(rawUid || '').trim();
+  const norm = normalizeNfcUid(trimmed);
   if (!norm) return;
   const now = Date.now();
   if (nfc.lastUid === norm && now - nfc.lastAt < 1500 && ui.act) return;
+  nfc.lastRaw = trimmed;
   nfc.lastUid = norm;
   nfc.lastAt = now;
 
-  const card = resolveNfcCard(rawUid);
+  const card = resolveNfcCard(trimmed);
   if (!card) {
-    toast('ไม่พบรหัสการ์ด NFC นี้ในระบบ');
+    toast('ไม่พบรหัสการ์ด NFC นี้ในระบบ: ' + trimmed);
+    render();
     return;
   }
   if (card.type === 'audit') {
@@ -1097,25 +1145,40 @@ function handleNfcUid(rawUid) {
 document.addEventListener('keydown', (e) => {
   if (!isGamePlaying()) { nfc.buf = ''; return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (NFC_MOD_KEYS.has(e.key)) return;
   if (e.target && e.target.id === 'nfcUidInput') {
-    if (e.key === 'Enter') { e.preventDefault(); H.tapNfcInput(); }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); H.tapNfcInput(); }
     return;
   }
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
   const now = Date.now();
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    if (nfc.timer) { clearTimeout(nfc.timer); nfc.timer = null; }
     const scanned = nfc.buf;
     nfc.buf = '';
-    if (scanned.length >= 8 && resolveNfcCard(scanned)) {
+    if (scanned.length >= 8 && (resolveNfcCard(scanned) || /^[0-9a-fA-F:-]{8,}$/.test(scanned))) {
       e.preventDefault();
       handleNfcUid(scanned);
     }
     return;
   }
   if (e.key.length === 1 && /^[0-9a-fA-F:-]$/.test(e.key)) {
-    if (now - nfc.bufAt > 180) nfc.buf = '';
+    if (now - nfc.bufAt > 400) nfc.buf = '';
     nfc.buf += e.key;
     nfc.bufAt = now;
+    if (nfc.timer) clearTimeout(nfc.timer);
+    if (resolveNfcCard(nfc.buf)) {
+      const matched = nfc.buf;
+      nfc.buf = '';
+      handleNfcUid(matched);
+      return;
+    }
+    nfc.timer = setTimeout(() => {
+      const s = nfc.buf;
+      nfc.buf = '';
+      nfc.timer = null;
+      if (s.length >= 14 && resolveNfcCard(s)) handleNfcUid(s);
+    }, 250);
   } else {
     nfc.buf = '';
   }
