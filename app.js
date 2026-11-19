@@ -202,10 +202,27 @@ function vGame() {
     <button class="danger" data-act="forceEnd">จบเกมทันที</button></div>${barCity(r)}</div>
   <div class="card"><table><tr><th>ผู้เล่น</th><th>อาชีพ</th><th>ดัชนีชีวิต</th><th>แต้มร่วมมือ</th><th>ขั้นภารกิจ</th></tr>
   ${r.players.map((p) => `<tr><td>${esc(p.name)}</td><td>${roleIcon(p.role)} ${roleName(p.role)}</td><td>${p.life}</td><td>${p.coop}</td><td>${'●'.repeat(p.step)}${'○'.repeat(3 - p.step)}</td></tr>`).join('')}</table></div>
+  ${r.status === 'playing' ? vNfcBox() : ''}
   <div class="card"><h3>ทำรายการ</h3>
     ${vActMenu(r)}</div>
   ${vAdjust(r)}
   <div class="card"><h3>บันทึกเหตุการณ์ล่าสุด</h3>${r.log.length ? `<table>${r.log.slice(-8).reverse().map((l) => { const p = r.players.find((x) => x.id === l.pid); return `<tr><td>${p ? esc(p.name) : '-'}</td><td>${esc(l.reason)}</td><td>ชีวิต ${sgn(l.life)} / ร่วมมือ ${sgn(l.coop)} / เมือง ${sgn(l.city)}</td></tr>`; }).join('')}</table>` : '<p class="muted">ยังไม่มี</p>'}</div>`;
+}
+
+function vNfcBox() {
+  const hasWebNfc = typeof window !== 'undefined' && 'NDEFReader' in window;
+  const statusTxt = nfc.scanning
+    ? '📡 กำลังรอรับสัญญาณ NFC — นำการ์ดมาแตะได้เลย'
+    : nfc.err
+    ? '⚠️ ' + esc(nfc.err)
+    : hasWebNfc
+    ? '📡 พร้อมใช้งาน NFC (แตะการ์ดบนมือถือหรือเครื่องอ่าน USB NFC)'
+    : '📡 พร้อมใช้งานเครื่องอ่านการ์ด USB NFC (แตะการ์ดได้ทันที)';
+  return `<div class="card"><h3>แตะการ์ด NFC</h3>
+    <p class="muted">${statusTxt}</p>
+    ${hasWebNfc && !nfc.scanning ? '<p><button data-act="startNfc">เปิดรับสัญญาณ NFC</button></p>' : ''}
+    <div class="row"><input id="nfcUidInput" placeholder="แตะการ์ดผ่านเครื่องอ่าน USB NFC หรือกรอกรหัส UID เช่น 04:A5:74:AA:7E:26:81"><button class="alt" data-act="tapNfcInput">แตะการ์ด</button></div>
+  </div>`;
 }
 
 function vActMenu() {
@@ -414,6 +431,7 @@ function render() {
   if (ui.view === 'teacher' && !isTeacher()) ui.view = 'home';
   if (['lobby', 'pretest', 'game', 'end', 'post'].includes(ui.view) && !room()) ui.view = 'home';
   if (ui.view === 'post' && room() && !room().players.find((x) => x.id === ui.pid)) ui.view = 'home';
+  if (!isGamePlaying() && nfc.scanning) stopNfc();
   nav(); $('#app').innerHTML = VIEWS[ui.view](); tick();
 }
 
@@ -448,6 +466,7 @@ function enterRoom(code) {
   ui.code = r.code; DB.session.roomCode = r.code; save();
   if (cloudOn()) SicCloud.updateActiveRoomCode(r.code).catch(() => {});
   go(r.status === 'lobby' ? 'lobby' : r.status === 'playing' ? 'game' : 'end');
+  if (r.status === 'playing') maybeAutoStartNfc();
 }
 
 function examBegin(P) { P.phase = 'answer'; P.startedAt = Date.now(); go(ui.view); const t = $('#examText'); if (t && t.focus) t.focus(); }
@@ -458,11 +477,12 @@ async function examSubmit(P, items, kind) { // ส่งคำตอบข้อ
   P.scores[P.i] = { score: res.score, sim: res.sim }; P.phase = 'result'; P.busy = false; render();
 }
 
-function startSetup(kind) {
+function startSetup(kind, extra = {}) {
   const r = room();
+  if (!r || r.status !== 'playing') return;
   if (kind === 'audit' && r.players.length < 2) return toast('ต้องมีผู้เล่นอย่างน้อย 2 คน');
   ui.notice = null;
-  ui.act = { kind, stage: 'setup', pid: r.players[kind === 'audit' ? 1 : 0].id, inspector: r.players[0].id, role: ROLES[0].id, trait: TRAITS[0].id, text: '' };
+  ui.act = Object.assign({ kind, stage: 'setup', pid: r.players[kind === 'audit' ? 1 : 0].id, inspector: r.players[0].id, role: ROLES[0].id, trait: TRAITS[0].id, text: '' }, extra);
   render();
 }
 async function submitAnswer(auto) {
@@ -710,10 +730,11 @@ const H = {
   async startGame() {
     const r = room(); r.status = 'playing'; r.startedAt = Date.now(); r.endsAt = r.startedAt + r.durationMin * 60000; r.city = r.cityStart;
     r.players.forEach((p) => { p.life = 0; p.coop = 0; p.step = 0; }); r.log = []; save();
+    ui.act = null; go('game');
+    startNfc(true);
     if (cloudOn()) {
       try { await SicCloud.syncRoster(r.code, r, []); } catch (e) { syncErr(e); }
     }
-    ui.act = null; go('game');
   },
   async forceEnd() {
     if (confirm('จบเกมตอนนี้และสรุปผลตามคะแนน?')) {
@@ -728,6 +749,15 @@ const H = {
   actTrait: () => startSetup('trait'),
   actEthics: () => startSetup('ethics'),
   actAudit: () => startSetup('audit'),
+  startNfc: () => startNfc(false),
+  tapNfcInput: () => {
+    if (!isGamePlaying()) return;
+    const inp = $('#nfcUidInput');
+    const v = inp ? inp.value.trim() : '';
+    if (!v) return toast('กรุณาแตะการ์ด NFC หรือกรอกรหัส UID');
+    if (inp) inp.value = '';
+    handleNfcUid(v);
+  },
   actGo: () => {
     const a = ui.act, r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === a.pid);
     if (!p) return toast('เลือกผู้เล่นก่อน');
@@ -936,6 +966,159 @@ document.addEventListener('change', (e) => {
   const b = e.target.dataset && e.target.dataset.bind; if (!b || b === 'examAns' || b === 'actText') return;
   if (b === 'actSet') { if (ui.act) ui.act[e.target.dataset.f] = e.target.value; return; }
   ui[b] = e.target.value; if (b === 'tRoom' || b === 'slotRole' || b === 'slotTrait' || b === 'auditTarget') return; render();
+});
+
+// ===== ระบบแตะการ์ด NFC (ทำงานเฉพาะเมื่อเริ่มเกมแล้วเท่านั้น) =====
+const nfc = { scanning: false, ctrl: null, err: '', lastUid: '', lastAt: 0, buf: '', bufAt: 0 };
+function isGamePlaying() {
+  const r = ui.code && DB.rooms[ui.code];
+  return ui.view === 'game' && !!r && r.status === 'playing' && !ui.pre && !ui.post;
+}
+function stopNfc() {
+  if (nfc.ctrl) { try { nfc.ctrl.abort(); } catch (e) {} nfc.ctrl = null; }
+  nfc.scanning = false;
+  nfc.buf = '';
+}
+async function maybeAutoStartNfc() {
+  if (!isGamePlaying() || nfc.scanning || !('NDEFReader' in window)) return;
+  try {
+    if (navigator.permissions && navigator.permissions.query) {
+      const st = await navigator.permissions.query({ name: 'nfc' });
+      if (st && st.state === 'granted') startNfc(true);
+    }
+  } catch (e) {}
+}
+async function startNfc(silent = false) {
+  if (!isGamePlaying()) return;
+  if (typeof window === 'undefined' || !('NDEFReader' in window)) {
+    if (!silent) toast('เบราว์เซอร์นี้ไม่รองรับ Web NFC (ใช้เครื่องอ่าน USB NFC หรือกรอกรหัสได้)');
+    return;
+  }
+  if (nfc.scanning) return;
+  try {
+    const ctrl = new AbortController();
+    const reader = new window.NDEFReader();
+    nfc.ctrl = ctrl;
+    nfc.err = '';
+    await reader.scan({ signal: ctrl.signal });
+    if (!isGamePlaying()) { stopNfc(); return; }
+    nfc.scanning = true;
+    reader.addEventListener('readingerror', () => {
+      if (!isGamePlaying()) return;
+      toast('อ่านการ์ด NFC ไม่สำเร็จ ลองแตะใหม่อีกครั้ง');
+    });
+    reader.addEventListener('reading', (ev) => {
+      if (!isGamePlaying()) return;
+      let uid = ev && ev.serialNumber ? ev.serialNumber : '';
+      if (!resolveNfcCard(uid) && ev && ev.message && Array.isArray(ev.message.records)) {
+        for (const rec of ev.message.records) {
+          if (rec.recordType === 'text' && rec.data) {
+            try {
+              const txt = new TextDecoder().decode(rec.data);
+              if (resolveNfcCard(txt)) { uid = txt; break; }
+            } catch (e) {}
+          }
+        }
+      }
+      if (uid) handleNfcUid(uid);
+    });
+    render();
+  } catch (e) {
+    nfc.scanning = false;
+    nfc.ctrl = null;
+    const name = e && e.name ? e.name : '';
+    if (!silent) {
+      nfc.err = name === 'NotAllowedError'
+        ? 'ไม่ได้รับอนุญาตให้ใช้ NFC กรุณาอนุญาตสิทธิ์ NFC ของเบราว์เซอร์'
+        : 'เปิดใช้ NFC ไม่สำเร็จ: ' + (e && e.message ? e.message : 'ไม่รองรับบนอุปกรณ์นี้');
+      toast(nfc.err);
+      render();
+    }
+  }
+}
+function handleNfcUid(rawUid) {
+  if (!isGamePlaying()) return; // ถ้ายังไม่เริ่มเกมจะไม่แสดงอะไรเลย
+  const r = room();
+  if (!r || r.status !== 'playing') return;
+  if (ui.act && ui.act.busy) return;
+  const norm = normalizeNfcUid(rawUid);
+  if (!norm) return;
+  const now = Date.now();
+  if (nfc.lastUid === norm && now - nfc.lastAt < 1500 && ui.act) return;
+  nfc.lastUid = norm;
+  nfc.lastAt = now;
+
+  const card = resolveNfcCard(rawUid);
+  if (!card) {
+    toast('ไม่พบรหัสการ์ด NFC นี้ในระบบ');
+    return;
+  }
+  if (card.type === 'audit') {
+    startSetup('audit');
+    return;
+  }
+  if (card.type === 'mission') {
+    const L = lessonOf(r);
+    const p = r.players.find((x) => x.role === card.role);
+    if (!p) {
+      toast('ยังไม่มีผู้เล่นอาชีพ' + roleName(card.role) + ' ในห้องนี้');
+      if (r.players.length) startSetup('civic', { role: card.role });
+      return;
+    }
+    if (p.step >= 3) {
+      toast('ภารกิจส่วนตัวของ ' + p.name + ' (' + roleName(card.role) + ') ครบ 3 ขั้นแล้ว');
+      startSetup('civic', { pid: p.id, role: card.role });
+      return;
+    }
+    const m = L.missions[p.role] && L.missions[p.role][p.step];
+    if (!m) {
+      startSetup('civic', { pid: p.id, role: card.role });
+      return;
+    }
+    ui.notice = null;
+    ui.act = {
+      kind: 'civic',
+      stage: 'answer',
+      pid: p.id,
+      role: p.role,
+      owner: p.role,
+      own: true,
+      mode: 'tf',
+      trait: m.t,
+      title: 'ภารกิจที่ ' + (p.step + 1) + ' : ' + m.title,
+      desc: m.desc || '',
+      items: m.items || [],
+      tfAns: Array((m.items || []).length).fill(null),
+      timed: false,
+    };
+    go('game');
+  }
+}
+document.addEventListener('keydown', (e) => {
+  if (!isGamePlaying()) { nfc.buf = ''; return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target && e.target.id === 'nfcUidInput') {
+    if (e.key === 'Enter') { e.preventDefault(); H.tapNfcInput(); }
+    return;
+  }
+  if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  const now = Date.now();
+  if (e.key === 'Enter') {
+    const scanned = nfc.buf;
+    nfc.buf = '';
+    if (scanned.length >= 8 && resolveNfcCard(scanned)) {
+      e.preventDefault();
+      handleNfcUid(scanned);
+    }
+    return;
+  }
+  if (e.key.length === 1 && /^[0-9a-fA-F:-]$/.test(e.key)) {
+    if (now - nfc.bufAt > 180) nfc.buf = '';
+    nfc.buf += e.key;
+    nfc.bufAt = now;
+  } else {
+    nfc.buf = '';
+  }
 });
 
 // ===== ฐานข้อมูลออนไลน์ (Cloud Firestore) =====

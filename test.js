@@ -153,4 +153,19 @@ for (const tr of ['think', 'discipline', 'honesty', 'sufficiency', 'public']) {
   });
 }
 
+// 16) ระบบการ์ด NFC: ตรวจสอบ 6 ใบ + ภารกิจอาชีพ 6 ใบ
+const expectedAudit = ['04:A5:74:AA:7E:26:81', '04:8E:67:AA:7E:26:81', '04:3B:DC:AA:7E:26:81', '04:B5:D1:AA:7E:26:81', '04:1A:C9:AA:7E:26:81', '04:49:E3:AA:7E:26:81'];
+const expectedRoles = { gov: '04:85:4E:AA:7E:26:81', biz: '04:3B:53:AA:7E:26:81', press: '04:CD:52:AA:7E:26:81', local: '04:D2:B7:AA:7E:26:81', police: '04:4B:63:AA:7E:26:81', citizen: '04:F6:B1:AA:7E:26:81' };
+for (const u of expectedAudit) {
+  assert.strictEqual(C.resolveNfcCard(u, global.NFC_CARDS).type, 'audit');
+  assert.strictEqual(C.resolveNfcCard(u.toLowerCase().replace(/:/g, ''), global.NFC_CARDS).type, 'audit');
+}
+for (const [role, u] of Object.entries(expectedRoles)) {
+  const m = C.resolveNfcCard(u, global.NFC_CARDS);
+  assert.deepStrictEqual({ type: m.type, role: m.role }, { type: 'mission', role });
+  const rev = u.split(':').reverse().join('');
+  assert.strictEqual(C.resolveNfcCard(rev, global.NFC_CARDS).role, role);
+}
+assert.strictEqual(C.resolveNfcCard('00:11:22:33:44:55:66', global.NFC_CARDS), null);
+
 console.log('ทุกการทดสอบผ่าน');

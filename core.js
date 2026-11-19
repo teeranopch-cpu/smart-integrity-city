@@ -250,6 +250,36 @@ function totalScore(player, lesson) {
 }
 const TRAITS_COUNT = 5;
 
+function normalizeNfcUid(uid) {
+  return String(uid || '').trim().toUpperCase().replace(/[^0-9A-F]/g, '');
+}
+
+function reverseHexBytes(hex) {
+  const m = String(hex || '').match(/.{2}/g);
+  return m ? m.reverse().join('') : '';
+}
+
+function resolveNfcCard(uid, cards = (typeof NFC_CARDS !== 'undefined' ? NFC_CARDS : null)) {
+  if (!cards) return null;
+  const rawNorm = normalizeNfcUid(uid);
+  if (!rawNorm) return null;
+  const candidates = [rawNorm];
+  if (rawNorm.length === 14 && !rawNorm.startsWith('04') && rawNorm.endsWith('04')) {
+    candidates.push(reverseHexBytes(rawNorm));
+  }
+  for (const norm of candidates) {
+    if (Array.isArray(cards.audit) && cards.audit.some((x) => normalizeNfcUid(x) === norm)) {
+      return { type: 'audit', uid: norm };
+    }
+    if (cards.roles && typeof cards.roles === 'object') {
+      for (const [role, cardUid] of Object.entries(cards.roles)) {
+        if (normalizeNfcUid(cardUid) === norm) return { type: 'mission', role, uid: norm };
+      }
+    }
+  }
+  return null;
+}
+
 if (typeof module !== 'undefined') {
-  module.exports = { matchExam, EXAM_PASS, EXAM_FAIL, scoreExam2, reversed, similarity, coverage, simScore, tokens, SIM_DEFAULT, evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad };
+  module.exports = { matchExam, EXAM_PASS, EXAM_FAIL, scoreExam2, reversed, similarity, coverage, simScore, tokens, SIM_DEFAULT, evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad, normalizeNfcUid, resolveNfcCard };
 }
