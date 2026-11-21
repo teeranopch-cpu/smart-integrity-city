@@ -392,11 +392,24 @@ function vPost() {
 // ===== หลังบ้านครู =====
 function vTeacher() {
   if (!isTeacher()) return vHome();
-  const tabs = [['lessons', 'สื่อการสอน'], ['points', 'ตารางแต้มกลาง'], ['review', 'ตรวจภารกิจชีวิตจริง'], ['export', 'ส่งออก Excel'], ['calib', 'ทดลองตรวจ/แนวคำตอบ']];
+  const tabs = [['exam', 'ข้อสอบ Pre/Post'], ['lessons', 'สื่อการสอน (JSON)'], ['points', 'ตารางแต้มกลาง'], ['review', 'ตรวจภารกิจชีวิตจริง'], ['export', 'ส่งออก Excel'], ['calib', 'ทดลองตรวจ/แนวคำตอบ']];
   if (!ui.lessonId || !DB.lessons.find((l) => l.id === ui.lessonId)) ui.lessonId = DB.lessons[0].id;
   const L = DB.lessons.find((l) => l.id === ui.lessonId), mine = Object.values(DB.rooms);
   let body = '';
   if (ui.tTab === 'lessons' || ui.tTab === 'points') body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>`;
+  if (ui.tTab === 'exam') {
+    const es = ui.eSet || 'pretest', ei = Math.min(ui.eIdx || 0, L[es].length - 1), q = L[es][ei], kg = q.keys || [[], [], []];
+    body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>
+      <p class="muted">แก้ไขได้ทุกอย่างที่ผู้เล่นเห็นและที่ใช้ตรวจ: ชื่อชุด, เกณฑ์ผ่านเกียรติบัตร, คำถาม, ด้านคุณลักษณะ, แนวคำตอบ, คำตอบอื่นที่รับได้, กลุ่มคำสำคัญ 3 กลุ่ม (กลุ่มละ 1 คะแนน) ข้อสอบมี ${L.pretest.length} ข้อ ข้อละ ${EXAM_MAX} คะแนน (จำนวนข้อและคะแนนเต็มกำหนดตายตัว)</p>
+      <div class="row"><label>ชื่อชุด<input id="eName" value="${esc(L.name)}"></label><label>เกณฑ์ผ่านเกียรติบัตร<input type="number" id="ePass" min="1" max="${L.posttest.length * EXAM_MAX + TRAITS.length}" value="${L.passScore}"></label></div>
+      <div class="row"><select data-bind="eSet">${options([['pretest', 'Pre-Test'], ['posttest', 'Post-Test']], es)}</select><select data-bind="eIdx">${options(L[es].map((x, i) => [String(i), 'ข้อ ' + (i + 1) + ' · ' + traitName(x.trait)]), String(ei))}</select></div>
+      <label>ด้านคุณลักษณะ</label><select id="eTrait">${options(TRAITS.map((t) => [t.id, t.name]), q.trait)}</select>
+      <label>คำถามที่ผู้เล่นเห็น</label><textarea id="eQ" style="min-height:90px">${esc(q.q)}</textarea>
+      <label>แนวคำตอบ (ใช้เทียบความใกล้เคียง)</label><textarea id="eAns" style="min-height:90px">${esc(q.ans)}</textarea>
+      <label>คำตอบอื่นที่รับได้ (บรรทัดละ 1 คำตอบ)</label><textarea id="eAlts" style="min-height:70px">${esc((q.alts || []).join('\n'))}</textarea>
+      ${[0, 1, 2].map((i) => `<label>กลุ่มคำสำคัญที่ ${i + 1} (คั่นด้วยเครื่องหมายจุลภาค ,)</label><textarea id="eK${i}" style="min-height:56px">${esc((kg[i] || []).join(', '))}</textarea>`).join('')}
+      <p><button data-act="saveQ">บันทึกข้อนี้และชื่อ/เกณฑ์</button></p>`;
+  }
   if (ui.tTab === 'lessons') {
     body += `<p class="muted">แก้ไขเป็น JSON: ข้อสอบ Pre/Post, ภารกิจตัวละคร 3 ขั้น (ขั้นละ 10 ข้อ ถูก/ผิด) ของ 6 ตัวละคร, คลังภารกิจช่วยเหลือ (60 สถานการณ์), คลังการ์ดคุณลักษณะ 5 ด้าน (50 การ์ด), คลังข้อสอบตรวจสอบ (60 ข้อ), คำสำคัญที่ใช้ตรวจ</p>
       <textarea id="lJson" style="min-height:420px;font-family:monospace;font-size:.8rem">${esc(JSON.stringify(L, null, 2))}</textarea>
@@ -570,6 +583,15 @@ const H = {
     try { localStorage.setItem('sic_last_backup', String(Date.now())); } catch (e) {} toast('ดาวน์โหลดไฟล์สำรองแล้ว');
   },
   restorePick: () => $('#restoreFile').click(),
+  saveQ: async () => {
+    const L = DB.lessons.find((l) => l.id === ui.lessonId), es = ui.eSet || 'pretest', ei = ui.eIdx || 0, q = L[es][ei];
+    const qt = $('#eQ').value.trim(), an = $('#eAns').value.trim(); if (!qt || !an) return toast('ต้องมีคำถามและแนวคำตอบ');
+    const pass = parseInt($('#ePass').value, 10), mx = L.posttest.length * EXAM_MAX + TRAITS.length; if (!(pass >= 1 && pass <= mx)) return toast('เกณฑ์ผ่านต้องอยู่ระหว่าง 1–' + mx);
+    q.trait = $('#eTrait').value; q.q = qt; q.ans = an; q.alts = $('#eAlts').value.split('\n').map((x) => x.trim()).filter(Boolean);
+    q.keys = [0, 1, 2].map((i) => $('#eK' + i).value.split(/[,，\n]/).map((x) => x.trim()).filter(Boolean));
+    L.name = $('#eName').value.trim() || L.name; L.passScore = pass; save();
+    if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('บันทึกแล้ว'); render();
+  },
   saveAlts: async () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const cs = ui.cSet || 'pretest', i = ui.cIdx || 0; L[cs][i].alts = $('#cAlts').value.split('\n').map((x) => x.trim()).filter(Boolean); ui.cText = $('#cText').value; save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('บันทึกแล้ว'); render(); },
   tryScore: async () => { ui.cText = $('#cText').value; ui.semCos = null; const S = window.SicSemantic; if (S && S.ready()) { try { const L = DB.lessons.find((l) => l.id === ui.lessonId), cs = ui.cSet || 'pretest'; ui.semCos = await S.similarity(ui.cText, L[cs][Math.min(ui.cIdx || 0, L[cs].length - 1)]); } catch (e) { /* ignore */ } } render(); },
   semLoad: async () => { const S = window.SicSemantic; ui.semOut = ''; const t = setInterval(render, 700); try { await S.load(); S.setEnabled(true); toast('โหลดโมเดลแล้ว'); } catch (e) { toast('โหลดโมเดลไม่ได้ ใช้ตัวตรวจเดิมต่อ'); } clearInterval(t); render(); },

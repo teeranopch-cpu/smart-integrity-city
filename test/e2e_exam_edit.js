@@ -1,0 +1,13 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch(),p=await (await b.newContext()).newPage();const errs=[];p.on('pageerror',e=>errs.push(e.message));p.on('dialog',d=>d.accept());
+await p.route(/fonts|gstatic|jsdelivr/,r=>r.abort());
+await p.goto('file:///home/claude/smart-integrity-city/index.html');
+await p.evaluate(()=>{window.cloudOn=()=>false});
+await p.fill('#lName','ครู');await p.fill('#lCode','TEACHER2026');await p.click('[data-act=doLogin]');await p.waitForTimeout(500);
+console.log('old code rejected',await p.evaluate(()=>!DB.session));
+await p.fill('#lCode','Solar1253');await p.click('[data-act=doLogin]');await p.waitForTimeout(800);
+console.log('new code role',await p.evaluate(()=>DB.session&&DB.session.role));
+await p.evaluate(()=>go('teacher',{tTab:'exam'}));
+await p.fill('#eQ','คำถามทดสอบใหม่');await p.fill('#eK0','ก, ข');await p.fill('#ePass','20');await p.click('[data-act=saveQ]');await p.waitForTimeout(300);
+console.log(await p.evaluate(()=>JSON.stringify([DB.lessons[0].pretest[0].q,DB.lessons[0].pretest[0].keys[0],DB.lessons[0].passScore])));
+console.log('errors',errs);await b.close();})();

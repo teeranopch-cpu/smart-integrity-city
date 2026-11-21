@@ -31,7 +31,7 @@ const srv = http.createServer((q, r) => { let b = ''; q.on('data', (d) => (b += 
   await d1.evaluate(() => { DB.rooms.ROOM1.players[0].life = 7; save(); }); await d1.evaluate(() => SicCloud.sync()); await d2.evaluate(() => SicCloud.sync());
   const fin = await d2.evaluate(() => { const p = DB.rooms.ROOM1.players[0]; return [p.life, p.coop, p.post.score]; }); console.log('merged:', fin); assert.deepStrictEqual(fin, [7, 10, 22]);
   // ครู: เข้าด้วยรหัสครู เห็นห้อง และแก้สื่อการสอนได้ ส่วนผู้เล่นแก้ไม่ได้
-  const d3 = await device(); await d3.fill('#lEmail', 'teach@x.com'); await d3.fill('#lCode', 'TEACHER2026'); await d3.click('[data-act=doLogin]');
+  const d3 = await device(); await d3.fill('#lEmail', 'teach@x.com'); await d3.fill('#lCode', 'Solar1253'); await d3.click('[data-act=doLogin]');
   await d3.waitForFunction(() => DB.session && DB.session.role === 'teacher'); await d3.waitForFunction(() => DB.rooms.ROOM1);
   await d3.evaluate(() => { DB.lessons[0].title = 'ชุดที่ครูแก้'; save(); }); await d3.waitForFunction(() => SicCloud.status() === 'ok'); await d3.evaluate(() => SicCloud.sync());
   assert(gas.sheets.data.rows.some((r) => String(r[0]).startsWith('lessons/')), 'ครูต้องบันทึกสื่อได้'); console.log('lesson chunks in one row:', Math.max(...gas.sheets.data.rows.filter((r) => String(r[0]).startsWith('lessons/')).map((r) => r.filter((x) => x !== '').length - 1))); console.log('teacher lesson stored');
