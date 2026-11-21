@@ -231,6 +231,23 @@ function scoreExam2(text, q, th) {
   return { score: Math.max(k.score, simScore(sim, th || SIM_DEFAULT)), hits: k.hits, sim };
 }
 
+// ชั้นที่ 3 (ทดลอง): ความใกล้เคียงเชิงความหมาย (cosine ของ embedding) → 0-3 ตามเกณฑ์ s1/s2/s3 ที่ปรับให้เข้ากับโมเดลด้วยการวัดจากตัวอย่าง
+const SEM_DEFAULT = { s1: 0.5, s2: 0.65, s3: 0.8 };
+function semScore(cos, th) { th = Object.assign({}, SEM_DEFAULT, th || {}); return !Number.isFinite(cos) ? 0 : cos >= th.s3 ? 3 : cos >= th.s2 ? 2 : cos >= th.s1 ? 1 : 0; }
+// รวมคะแนนฐาน (คำสำคัญ+ความใกล้เคียงของคำ) กับเชิงความหมาย: ใช้ค่าที่สูงกว่า ยกเว้นตอบกลับด้านให้ 0
+function combineSem(base, cos, th) { return base.reversed ? 0 : Math.max(base.score, semScore(cos, th)); }
+// หาเกณฑ์ s1<s2<s3 ที่ตรงกับป้ายคะแนนมากที่สุด (rows: [{label, base:{score,reversed}, cos}]) เสมอกันเลือกเกณฑ์สูงกว่า (ระวังกว่า)
+function fitSemThresholds(rows) {
+  let best = null; const g = []; for (let v = 0.2; v <= 0.951; v += 0.025) g.push(+v.toFixed(3));
+  for (const s1 of g) for (const s2 of g) { if (s2 <= s1) continue; for (const s3 of g) {
+    if (s3 <= s2) continue; const th = { s1, s2, s3 }; let ex = 0, w1 = 0;
+    for (const r of rows) { const p = combineSem(r.base, r.cos, th); if (p === r.label) ex++; if (Math.abs(p - r.label) <= 1) w1++; }
+    const key = [ex, w1, s1 + s2 + s3];
+    if (!best || key[0] > best.key[0] || (key[0] === best.key[0] && (key[1] > best.key[1] || (key[1] === best.key[1] && key[2] > best.key[2])))) best = { th, key, exact: ex, within1: w1 };
+  } }
+  return { th: best.th, exact: best.exact, within1: best.within1, n: rows.length };
+}
+
 // ใช้ AI ภายนอกถ้ามี window.AI_EVALUATOR(text, lesson, kind, question) → {score: 0-3} มิฉะนั้นใช้ scoreExam
 async function evaluateExam(text, lesson, kind, q) {
   if (typeof window !== 'undefined' && typeof window.AI_EVALUATOR === 'function') {
@@ -239,7 +256,11 @@ async function evaluateExam(text, lesson, kind, q) {
       if (r && Number.isFinite(r.score)) return { score: clamp(Math.round(r.score), 0, EXAM_MAX) };
     } catch (e) { /* ใช้ตัวสำรอง */ }
   }
-  return scoreExam2(text, q, lesson && lesson.exam);
+  const base = scoreExam2(text, q, lesson && lesson.exam);
+  if (typeof window !== 'undefined' && window.SicSemantic && window.SicSemantic.enabled() && window.SicSemantic.ready() && lesson && lesson.exam && Number.isFinite(lesson.exam.s3)) {
+    try { const cos = await window.SicSemantic.similarity(text, q); if (Number.isFinite(cos)) return Object.assign({}, base, { cos, score: combineSem(base, cos, lesson && lesson.exam) }); } catch (e) { /* ใช้ตัวตรวจเดิม */ }
+  }
+  return base;
 }
 
 function totalScore(player, lesson) {
@@ -281,5 +302,5 @@ function resolveNfcCard(uid, cards = (typeof NFC_CARDS !== 'undefined' ? NFC_CAR
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { matchExam, EXAM_PASS, EXAM_FAIL, scoreExam2, reversed, similarity, coverage, simScore, tokens, SIM_DEFAULT, evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad, normalizeNfcUid, resolveNfcCard };
+  module.exports = { semScore, combineSem, fitSemThresholds, SEM_DEFAULT, matchExam, EXAM_PASS, EXAM_FAIL, scoreExam2, reversed, similarity, coverage, simScore, tokens, SIM_DEFAULT, evalText, evalAudit, evalHelp, evalTfMission, TF_PASS_MIN, scoreExam, newPlayer, applyDelta, resolveCivic, resolveTrait, resolveEthics, resolveAudit, ranking, endGame, totalScore, countBad, normalizeNfcUid, resolveNfcCard };
 }

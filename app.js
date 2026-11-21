@@ -424,13 +424,45 @@ function vTeacher() {
       <label>คำตอบอื่นที่รับได้ (บรรทัดละ 1 คำตอบ)</label><textarea id="cAlts" style="min-height:90px">${esc((cq.alts || []).join('\n'))}</textarea>
       <p><button data-act="saveAlts">บันทึกคำตอบที่รับได้</button></p>
       <label>ลองพิมพ์คำตอบของนักเรียน</label><textarea id="cText" style="min-height:90px">${esc(ui.cText || '')}</textarea><p><button data-act="tryScore">ตรวจ</button></p>${res}
-      <h3>เกณฑ์ความใกล้เคียง (0–100%)</h3><div class="row"><label>≥ ได้ 1 คะแนน<input type="number" id="t1" value="${Math.round(th.t1 * 100)}"></label><label>≥ ได้ 2 คะแนน<input type="number" id="t2" value="${Math.round(th.t2 * 100)}"></label><label>≥ ได้ 3 คะแนน<input type="number" id="t3" value="${Math.round(th.t3 * 100)}"></label></div><p><button data-act="saveTh">บันทึกเกณฑ์</button></p>`;
+      <h3>เกณฑ์ความใกล้เคียง (0–100%)</h3><div class="row"><label>≥ ได้ 1 คะแนน<input type="number" id="t1" value="${Math.round(th.t1 * 100)}"></label><label>≥ ได้ 2 คะแนน<input type="number" id="t2" value="${Math.round(th.t2 * 100)}"></label><label>≥ ได้ 3 คะแนน<input type="number" id="t3" value="${Math.round(th.t3 * 100)}"></label></div><p><button data-act="saveTh">บันทึกเกณฑ์</button></p>${semCard(L, cq)}`;
   }
   return `<div class="card"><h2>หลังบ้านครู</h2><div class="tabs">${tabs.map(([k, l]) => `<button class="${ui.tTab === k ? 'on' : ''}" data-act="tTab" data-t="${k}">${l}</button>`).join('')}</div>${body}</div>`;
 }
 
 const VIEWS = { home: vHome, login: vLogin, create: vCreate, lobby: vLobby, pretest: vPretest, game: vGame, end: vEnd, joinPost: vJoinPost, post: vPost, teacher: vTeacher };
 
+
+// ตัวตรวจเชิงความหมาย (ทดลอง) — เปิด/ปิด วัดความแม่นยำจากตัวอย่าง และปรับเกณฑ์อัตโนมัติ
+function semCard(L, cq) {
+  const S = window.SicSemantic; if (!S) return '';
+  const st = S.status(), on = S.enabled(), sth = Object.assign({}, SEM_DEFAULT, L.exam || {});
+  const stTxt = st.state === 'ready' ? 'พร้อมใช้งาน' : st.state === 'loading' ? 'กำลังโหลดโมเดล ' + Math.round(st.progress) + '%' : st.state === 'error' ? 'โหลดไม่สำเร็จ: ' + esc(st.err) : 'ยังไม่ได้โหลด';
+  let tr = ''; if (ui.cText && S.ready()) tr = `<p class="muted">คำตอบที่พิมพ์ด้านบน: ความใกล้เคียงเชิงความหมาย ≈ ${ui.semCos == null ? '-' : ui.semCos.toFixed(2)}</p>`;
+  return `<div class="card"><h3>ตรวจเชิงความหมายด้วยโมเดล (ทดลอง)</h3>
+    <p class="muted">เทียบความหมายของคำตอบกับแนวคำตอบ แม้ใช้คำต่างกัน โมเดลรันในเบราว์เซอร์ของเครื่องนั้น ไม่ส่งคำตอบออกนอกเครื่อง ครั้งแรกต้องโหลดประมาณ 100 MB (ต้องมีอินเทอร์เน็ต) ถ้าโหลดไม่ได้ระบบจะใช้ตัวตรวจเดิม ต้องกด "ปรับเกณฑ์อัตโนมัติและบันทึก" อย่างน้อยหนึ่งครั้งก่อน มิฉะนั้นยังไม่นำมาคิดคะแนน การเปิดนี้มีผลเฉพาะเครื่องนี้ (ควรเปิดบนเครื่องที่นักเรียนใช้ส่งข้อสอบ)</p>
+    <p>สถานะ: <b>${stTxt}</b> · ใช้งาน: <b>${on ? 'เปิด' : 'ปิด'}</b></p>
+    <div class="row"><button data-act="semLoad">โหลดโมเดล</button><button class="alt" data-act="semToggle">${on ? 'ปิดการใช้งาน' : 'เปิดการใช้งาน'}</button></div>${tr}
+    <h4>วัดความแม่นยำจากตัวอย่าง 60 ข้อ และปรับเกณฑ์อัตโนมัติ</h4>
+    <p class="muted">ตัวอย่างนี้ป้ายคะแนนที่ผู้พัฒนาตั้งเอง ควรให้ครูตรวจสอบก่อนเชื่อผล เกณฑ์ปัจจุบัน ≥${sth.s1} / ≥${sth.s2} / ≥${sth.s3}</p>
+    <div class="row"><button data-act="semBench">วัดความแม่นยำ</button><button class="alt" data-act="semFit">ปรับเกณฑ์อัตโนมัติและบันทึก</button></div>${ui.semOut ? `<div class="result">${ui.semOut}</div>` : ''}</div>`;
+}
+
+async function semRun(fit) {
+  const S = window.SicSemantic, L = DB.lessons.find((l) => l.id === ui.lessonId);
+  if (!S.ready()) return toast('โหลดโมเดลก่อน');
+  ui.semOut = 'กำลังคำนวณ...'; render();
+  try {
+    const data = await (await fetch('exam_samples.json')).json(), rows = [];
+    for (const g of data) { const q = (L[g.set] || [])[g.idx]; if (!q) continue; for (const s of g.samples) rows.push({ label: s.label, base: scoreExam2(s.text, q, L.exam), cos: await S.similarity(s.text, q) }); }
+    const baseOnly = rows.filter((r) => r.base.score === r.label).length, cur = Object.assign({}, SEM_DEFAULT, L.exam || {});
+    const cnt = (th) => { let e = 0, w = 0; rows.forEach((r) => { const p = combineSem(r.base, r.cos, th); if (p === r.label) e++; if (Math.abs(p - r.label) <= 1) w++; }); return [e, w]; };
+    let msg = `ตัวตรวจเดิม: ตรง ${baseOnly}/${rows.length}<br>`, th = cur;
+    if (fit) { const f = fitSemThresholds(rows); th = f.th; L.exam = Object.assign({}, L.exam, th); save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); msg += `บันทึกเกณฑ์ใหม่ ≥${th.s1} / ≥${th.s2} / ≥${th.s3}<br>`; }
+    const [e, w] = cnt(th); msg += `เดิม+ความหมาย: ตรง ${e}/${rows.length} · คลาดไม่เกิน 1 คะแนน ${w}/${rows.length}`;
+    ui.semOut = msg;
+  } catch (e) { ui.semOut = 'ผิดพลาด: ' + esc(String(e.message || e)); }
+  render();
+}
 
 function render() {
   if (!me()) ui.view = 'login';
@@ -539,8 +571,12 @@ const H = {
   },
   restorePick: () => $('#restoreFile').click(),
   saveAlts: async () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const cs = ui.cSet || 'pretest', i = ui.cIdx || 0; L[cs][i].alts = $('#cAlts').value.split('\n').map((x) => x.trim()).filter(Boolean); ui.cText = $('#cText').value; save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('บันทึกแล้ว'); render(); },
-  tryScore: () => { ui.cText = $('#cText').value; render(); },
-  saveTh: async () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const v = ['t1', 't2', 't3'].map((k) => +$('#' + k).value / 100); if (!(v[0] <= v[1] && v[1] <= v[2]) || v.some((x) => !(x >= 0 && x <= 1))) return toast('เกณฑ์ต้องเรียงจากน้อยไปมาก (0–100)'); L.exam = { t1: v[0], t2: v[1], t3: v[2] }; save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('บันทึกเกณฑ์แล้ว'); render(); },
+  tryScore: async () => { ui.cText = $('#cText').value; ui.semCos = null; const S = window.SicSemantic; if (S && S.ready()) { try { const L = DB.lessons.find((l) => l.id === ui.lessonId), cs = ui.cSet || 'pretest'; ui.semCos = await S.similarity(ui.cText, L[cs][Math.min(ui.cIdx || 0, L[cs].length - 1)]); } catch (e) { /* ignore */ } } render(); },
+  semLoad: async () => { const S = window.SicSemantic; ui.semOut = ''; const t = setInterval(render, 700); try { await S.load(); S.setEnabled(true); toast('โหลดโมเดลแล้ว'); } catch (e) { toast('โหลดโมเดลไม่ได้ ใช้ตัวตรวจเดิมต่อ'); } clearInterval(t); render(); },
+  semToggle: () => { const S = window.SicSemantic; S.setEnabled(!S.enabled()); render(); },
+  semBench: async () => { await semRun(false); },
+  semFit: async () => { await semRun(true); },
+  saveTh: async () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); const v = ['t1', 't2', 't3'].map((k) => +$('#' + k).value / 100); if (!(v[0] <= v[1] && v[1] <= v[2]) || v.some((x) => !(x >= 0 && x <= 1))) return toast('เกณฑ์ต้องเรียงจากน้อยไปมาก (0–100)'); L.exam = Object.assign({}, L.exam, { t1: v[0], t2: v[1], t3: v[2] }); save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('บันทึกเกณฑ์แล้ว'); render(); },
   home: () => go('home'),
   logout: async () => {
     if (cloudOn()) { try { await SicCloud.logout(); } catch (e) {} }
