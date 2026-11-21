@@ -76,6 +76,11 @@ function fileToDataURL(file, maxW = 720) {
   });
 }
 
+// ===== เกียรติบัตรจากเทมเพลตของครู: แสดงเฉพาะชื่อผู้เล่นทับบนรูป ปรับตำแหน่ง/ขนาด/สีได้ =====
+const CERT_DEF = { x: 50, y: 50, size: 5, color: '#000000', bold: true };
+function certName(c, name) { return `<div class="cname" style="left:${c.x}%;top:${c.y}%;font-size:${c.size}cqw;color:${esc(c.color)};font-weight:${c.bold ? 700 : 400}">${esc(name)}</div>`; }
+function certTemplate(c, name, id) { return `<div class="certT" ${id ? `id="${id}"` : ''}><img src="${c.img}" alt="เกียรติบัตร" draggable="false">${certName(c, name)}</div>`; }
+
 // ===== แผนภูมิเรดาร์ (SVG) =====
 function radar(series, max = TRAIT_MAX) {
   const cx = 150, cy = 140, R = 100, n = TRAITS.length;
@@ -383,7 +388,7 @@ function vPost() {
   if (ui.tab === 'cert') {
     const s = totalScore(p, L);
     body = `<p>คะแนน: Post-Test ${s.post}/${L.posttest.length * EXAM_MAX} + ภารกิจชีวิตจริงที่ผ่าน ${s.ev}/${TRAITS.length} = <b>${s.total}/${s.max}</b> (เกณฑ์ผ่าน ${L.passScore})</p>` + (s.pass
-      ? `<div class="cert"><div>เกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า</div><div class="nm">${esc(p.name)}</div><h1>ผ่านการอบรม Smart Integrity City</h1><div>เสริมสร้างคุณลักษณะ คิด วินัย ซื่อสัตย์ พอเพียง จิตสาธารณะ</div><p>ห้อง ${r.code} · ${new Date().toLocaleDateString('th-TH')}</p></div><p class="noprint"><button data-act="print">พิมพ์ / บันทึกเป็น PDF</button></p>`
+      ? (L.cert && L.cert.img ? certTemplate(Object.assign({}, CERT_DEF, L.cert), p.name) : `<div class="cert"><div>เกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า</div><div class="nm">${esc(p.name)}</div><h1>ผ่านการอบรม Smart Integrity City</h1><div>เสริมสร้างคุณลักษณะ คิด วินัย ซื่อสัตย์ พอเพียง จิตสาธารณะ</div><p>ห้อง ${r.code} · ${new Date().toLocaleDateString('th-TH')}</p></div>`) + `<p class="noprint"><button data-act="print">พิมพ์ / บันทึกเป็น PDF</button></p>`
       : '<p class="bad">ยังไม่ผ่านเกณฑ์ — ต้องทำ Post-Test และให้ครูตรวจภารกิจชีวิตจริงให้ครบก่อน</p>');
   }
   return `<div class="card noprint"><h2>${esc(p.name)} · ห้อง ${r.code}</h2><div class="tabs">${tabs.map(([k, l]) => `<button class="${ui.tab === k ? 'on' : ''}" data-act="tab" data-t="${k}">${l}</button>`).join('')}</div></div>${body}`;
@@ -392,7 +397,7 @@ function vPost() {
 // ===== หลังบ้านครู =====
 function vTeacher() {
   if (!isTeacher()) return vHome();
-  const tabs = [['exam', 'ข้อสอบ Pre/Post'], ['lessons', 'สื่อการสอน (JSON)'], ['points', 'ตารางแต้มกลาง'], ['review', 'ตรวจภารกิจชีวิตจริง'], ['export', 'ส่งออก Excel'], ['calib', 'ทดลองตรวจ/แนวคำตอบ']];
+  const tabs = [['exam', 'ข้อสอบ Pre/Post'], ['lessons', 'สื่อการสอน (JSON)'], ['points', 'ตารางแต้มกลาง'], ['review', 'ตรวจภารกิจชีวิตจริง'], ['export', 'ส่งออก Excel'], ['cert', 'เทมเพลตเกียรติบัตร'], ['calib', 'ทดลองตรวจ/แนวคำตอบ']];
   if (!ui.lessonId || !DB.lessons.find((l) => l.id === ui.lessonId)) ui.lessonId = DB.lessons[0].id;
   const L = DB.lessons.find((l) => l.id === ui.lessonId), mine = Object.values(DB.rooms);
   let body = '';
@@ -426,6 +431,17 @@ function vTeacher() {
     body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้อง</p>';
     body += `<div class="card"><h3>สำรอง/กู้คืนข้อมูลทั้งหมด</h3><p class="muted">ข้อมูลบัญชี ห้อง คะแนน ผลสอบ และรูปหลักฐานถูกบันทึกในฐานข้อมูลออนไลน์ (Firebase) อัตโนมัติ สามารถเข้าสู่ระบบจากเครื่องอื่นได้ทันที และยังส่งออกเป็นไฟล์สำรองได้</p><div class="row"><button data-act="backup">ดาวน์โหลดไฟล์สำรอง</button><button class="alt" data-act="restorePick">กู้คืนจากไฟล์สำรอง</button><input type="file" id="restoreFile" accept="application/json,.json" style="display:none"></div></div>`;
     body += `<div class="card"><h3>เพิ่มสิทธิ์ครูสำหรับบัญชีอื่น</h3><p class="muted">ให้ครูท่านอื่นสมัครด้วยชื่อและรหัสผ่าน แล้วกรอกชื่อผู้ใช้หรือรหัสผู้ใช้ (UID) ที่นี่ (หรือเข้าสู่ระบบด้วยรหัสครูได้เลย)</p><div class="row"><input id="newTeacherUid" placeholder="วางชื่อผู้ใช้หรือ UID ของครูที่ต้องการเพิ่ม"><button data-act="grantTeacher">เพิ่มสิทธิ์ครู</button></div></div>`;
+  }
+  if (ui.tTab === 'cert') {
+    if (ui.cdFor !== L.id) { ui.cd = Object.assign({}, CERT_DEF, JSON.parse(JSON.stringify(L.cert || {}))); ui.cdFor = L.id; }
+    const c = ui.cd, sl = (id, lb, mn, mx, st, v) => `<label>${lb}: <b id="${id}V">${v}</b><input type="range" id="${id}" min="${mn}" max="${mx}" step="${st}" value="${v}" data-cert="${id}"></label>`;
+    body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>
+      <p class="muted">อัปโหลดรูปเกียรติบัตรของครู (PNG/JPG ควรเว้นที่ว่างสำหรับชื่อ) ระบบจะพิมพ์เฉพาะ "ชื่อผู้เล่น" ทับลงไป ลากชื่อบนตัวอย่างเพื่อย้ายตำแหน่ง หรือใช้แถบเลื่อนปรับตำแหน่ง/ขนาด/สีได้ ผู้เล่นที่ผ่านเกณฑ์จะเห็นเกียรติบัตรนี้ ถ้าไม่ได้อัปโหลด ระบบใช้แบบเริ่มต้น</p>
+      <div class="row"><button data-act="certPick">${c.img ? 'เปลี่ยนรูปเทมเพลต' : 'อัปโหลดรูปเทมเพลต'}</button><input type="file" id="certFile" accept="image/*" style="display:none">${c.img ? '<button class="danger" data-act="certClear">ลบเทมเพลต (ใช้แบบเริ่มต้น)</button>' : ''}</div>
+      ${c.img ? `<div class="certbox">${certTemplate(c, 'ชื่อ นามสกุล ตัวอย่าง', 'certPrev')}</div>
+      ${sl('cx', 'ตำแหน่งแนวนอน (%)', 0, 100, 0.5, c.x)}${sl('cy', 'ตำแหน่งแนวตั้ง (%)', 0, 100, 0.5, c.y)}${sl('cs', 'ขนาดตัวอักษร', 1, 15, 0.1, c.size)}
+      <div class="row"><label>สีตัวอักษร<input type="color" id="cc" data-cert="cc" value="${esc(c.color)}"></label><label><input type="checkbox" id="cb" data-cert="cb" ${c.bold ? 'checked' : ''}> ตัวหนา</label></div>
+      <p class="row"><button data-act="certSave">บันทึกเทมเพลต</button></p>` : ''}`;
   }
   if (ui.tTab === 'calib') {
     const sets = [['pretest', 'Pre-Test'], ['posttest', 'Post-Test']], cs = ui.cSet || 'pretest', ci = Math.min(ui.cIdx || 0, L[cs].length - 1), cq = L[cs][ci], th = Object.assign({}, SIM_DEFAULT, L.exam || {});
@@ -583,6 +599,13 @@ const H = {
     try { localStorage.setItem('sic_last_backup', String(Date.now())); } catch (e) {} toast('ดาวน์โหลดไฟล์สำรองแล้ว');
   },
   restorePick: () => $('#restoreFile').click(),
+  certPick: () => $('#certFile').click(),
+  certClear: async () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); delete L.cert; ui.cdFor = null; save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('ลบเทมเพลตแล้ว'); render(); },
+  certSave: async () => {
+    const L = DB.lessons.find((l) => l.id === ui.lessonId); L.cert = JSON.parse(JSON.stringify(ui.cd));
+    if (JSON.stringify(L).length > 900000) return toast('ข้อมูลชุดนี้ใหญ่เกินไป ลองใช้รูปที่เล็กลง');
+    save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('บันทึกเทมเพลตแล้ว');
+  },
   saveQ: async () => {
     const L = DB.lessons.find((l) => l.id === ui.lessonId), es = ui.eSet || 'pretest', ei = ui.eIdx || 0, q = L[es][ei];
     const qt = $('#eQ').value.trim(), an = $('#eAns').value.trim(); if (!qt || !an) return toast('ต้องมีคำถามและแนวคำตอบ');
@@ -1297,3 +1320,18 @@ document.addEventListener('change', async (e) => {
 });
 if (cloudOn()) startCloud();
 render();
+
+// ตัวปรับเทมเพลตเกียรติบัตร: อัปโหลดรูป แถบเลื่อน และลากชื่อบนตัวอย่าง
+(function () {
+  const upd = () => { const c = ui.cd, n = document.querySelector('#certPrev .cname'); if (!n || !c) return; n.style.left = c.x + '%'; n.style.top = c.y + '%'; n.style.fontSize = c.size + 'cqw'; n.style.color = c.color; n.style.fontWeight = c.bold ? 700 : 400; ['cx', 'cy', 'cs'].forEach((id, i) => { const e = document.getElementById(id + 'V'), k = ['x', 'y', 'size'][i]; if (e) e.textContent = c[k]; const s = document.getElementById(id); if (s) s.value = c[k]; }); };
+  document.addEventListener('input', (e) => { const k = e.target.dataset && e.target.dataset.cert; if (!k || !ui.cd) return; const v = e.target; if (k === 'cx') ui.cd.x = +v.value; else if (k === 'cy') ui.cd.y = +v.value; else if (k === 'cs') ui.cd.size = +v.value; else if (k === 'cc') ui.cd.color = v.value; else if (k === 'cb') ui.cd.bold = v.checked; upd(); });
+  document.addEventListener('change', async (e) => {
+    if (e.target.id !== 'certFile' || !e.target.files[0]) return;
+    try { const img = await fileToDataURL(e.target.files[0], 1600); ui.cd.img = img; toast('โหลดรูปแล้ว กดบันทึกเมื่อปรับตำแหน่งเสร็จ'); render(); } catch (err) { toast('อ่านรูปไม่ได้'); }
+  });
+  let drag = false;
+  const mv = (e) => { const b = document.getElementById('certPrev'); if (!drag || !b) return; const r = b.getBoundingClientRect(); ui.cd.x = Math.round(Math.min(100, Math.max(0, (e.clientX - r.left) / r.width * 100)) * 2) / 2; ui.cd.y = Math.round(Math.min(100, Math.max(0, (e.clientY - r.top) / r.height * 100)) * 2) / 2; upd(); };
+  document.addEventListener('pointerdown', (e) => { if (e.target.closest && e.target.closest('#certPrev')) { drag = true; mv(e); e.preventDefault(); } });
+  document.addEventListener('pointermove', mv);
+  document.addEventListener('pointerup', () => { drag = false; });
+})();

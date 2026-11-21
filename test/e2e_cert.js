@@ -1,0 +1,18 @@
+const {chromium}=require('playwright');
+(async()=>{const b=await chromium.launch(),p=await (await b.newContext({viewport:{width:1000,height:900}})).newPage();const errs=[];p.on('pageerror',e=>errs.push(e.message));p.on('dialog',d=>d.accept());
+await p.route(/fonts|gstatic|jsdelivr/,r=>r.abort());
+await p.goto('file:///home/claude/smart-integrity-city/index.html');
+await p.fill('#lName','ครู');await p.fill('#lCode','Solar1253');await p.click('[data-act=doLogin]');await p.waitForTimeout(600);
+await p.evaluate(()=>go('teacher',{tTab:'cert'}));
+await p.setInputFiles('#certFile','/tmp/claude-0/-home-claude/d6ae1287-04fa-5adb-af3e-8b4577102c9a/scratchpad/tpl.png');await p.waitForSelector('#certPrev');
+const bx=await p.locator('#certPrev').boundingBox();await p.mouse.move(bx.x+bx.width*0.3,bx.y+bx.height*0.6);await p.mouse.down();await p.mouse.up();
+await p.fill('#cs','8');await p.dispatchEvent('#cs','input');
+console.log('draft',await p.evaluate(()=>JSON.stringify({x:ui.cd.x,y:ui.cd.y,s:ui.cd.size,len:ui.cd.img.length})));
+await p.click('[data-act=certSave]');await p.waitForTimeout(300);
+console.log('saved',await p.evaluate(()=>JSON.stringify({x:DB.lessons[0].cert.x,y:DB.lessons[0].cert.y})));
+await p.screenshot({path:'/tmp/claude-0/-home-claude/d6ae1287-04fa-5adb-af3e-8b4577102c9a/scratchpad/cert_teacher.png'});
+await p.evaluate(()=>{const r={code:'R1',owner:'ครู',lessonId:DB.lessons[0].id,status:'ended',endedAt:Date.now(),city:100,cityStart:100,log:[],players:[newPlayer('สมชาย ใจดี','gov')]};DB.rooms.R1=r;const pl=r.players[0];ui.pid=pl.id;ui.code='R1';window.totalScore=()=>({post:30,ev:5,total:35,max:35,pass:true});});
+await p.evaluate(()=>{ui.tab='cert';DB.session={role:'player',name:'สมชาย ใจดี',roomCode:'R1'};go('post',{tab:'cert'});});
+await p.waitForTimeout(400);console.log('student cert',await p.evaluate(()=>!!document.querySelector('.certT .cname')&&document.querySelector('.cname').textContent));
+await p.screenshot({path:'/tmp/claude-0/-home-claude/d6ae1287-04fa-5adb-af3e-8b4577102c9a/scratchpad/cert_student.png'});
+console.log('errors',errs);await b.close();})();

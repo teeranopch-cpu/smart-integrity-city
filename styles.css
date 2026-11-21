@@ -117,3 +117,10 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradi
 .google-btn:hover{background:#f8fafc}
 .room-item{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);margin-top:8px}
 
+
+/* เทมเพลตเกียรติบัตร */
+.certT{position:relative;width:100%;container-type:inline-size;line-height:1.2;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.certT img{display:block;width:100%;height:auto;user-select:none}
+.certT .cname{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;pointer-events:none}
+.certbox{margin:10px 0;touch-action:none;cursor:crosshair;border:1px dashed var(--line)}
+@media print{.certT{width:100%;page-break-inside:avoid}@page{margin:8mm}}
