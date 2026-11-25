@@ -124,3 +124,7 @@ body::after{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradi
 .certT .cname{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;pointer-events:none}
 .certbox{margin:10px 0;touch-action:none;cursor:crosshair;border:1px dashed var(--line)}
 @media print{.certT{width:100%;page-break-inside:avoid}@page{margin:8mm}}
+
+.certT .csig{position:absolute;transform:translate(-50%,-50%);height:auto;pointer-events:none;user-select:none}
+.certT .csig.ph{border:1px dashed #c33;color:#c33;font-size:1.6cqw;text-align:center;padding:1.2cqw 0;background:rgba(255,255,255,.6)}
+.certbox .cname,.certbox .csig{pointer-events:auto}

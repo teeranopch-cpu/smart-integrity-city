@@ -77,9 +77,33 @@ function fileToDataURL(file, maxW = 720) {
 }
 
 // ===== เกียรติบัตรจากเทมเพลตของครู: แสดงเฉพาะชื่อผู้เล่นทับบนรูป ปรับตำแหน่ง/ขนาด/สีได้ =====
-const CERT_DEF = { x: 50, y: 50, size: 5, color: '#000000', bold: true };
-function certName(c, name) { return `<div class="cname" style="left:${c.x}%;top:${c.y}%;font-size:${c.size}cqw;color:${esc(c.color)};font-weight:${c.bold ? 700 : 400}">${esc(name)}</div>`; }
-function certTemplate(c, name, id) { return `<div class="certT" ${id ? `id="${id}"` : ''}><img src="${c.img}" alt="เกียรติบัตร" draggable="false">${certName(c, name)}</div>`; }
+const CERT_DEF = { x: 50, y: 47.5, size: 4.5, color: '#000000', bold: true };
+const CERT_EL = [['name', 'ชื่อผู้เล่น'], ['date', 'วันที่ (ให้ไว้ ณ วันที่)'], ['s0', 'ลายเซ็น ครูผู้รับรองความดี'], ['s1', 'ลายเซ็น ผู้อำนวยการสถานศึกษา']];
+const thaiDate = () => new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+// เติมค่าเริ่มต้น (ตำแหน่งตามเกียรติบัตรแบบมาตรฐาน: วันที่อยู่บรรทัด "ให้ไว้ ณ วันที่" ลายเซ็นอยู่เหนือเส้น "ลงชื่อ")
+function certCfg(c) {
+  const d = Object.assign({}, CERT_DEF, c || {});
+  d.date = Object.assign({ on: true, x: 56, y: 76.5, size: 2.2, text: '' }, (c && c.date) || {});
+  d.sig = [0, 1].map((i) => Object.assign({ img: '', x: i ? 77.5 : 27, y: 82.5, w: 16 }, ((c && c.sig) || [])[i] || {}));
+  return d;
+}
+const certEl = (c, k) => (k === 'name' ? c : k === 'date' ? c.date : c.sig[+k[1]]);
+function certTemplate(c0, name, id, edit) {
+  const c = certCfg(c0), pos = (o) => `left:${o.x}%;top:${o.y}%`;
+  const sigs = c.sig.map((s, i) => s.img ? `<img class="csig" data-el="s${i}" src="${s.img}" alt="" draggable="false" style="${pos(s)};width:${s.w}%">` : edit ? `<div class="csig ph" data-el="s${i}" style="${pos(s)};width:${s.w}%">ลายเซ็น</div>` : '').join('');
+  const dt = c.date.on ? `<div class="cname" data-el="date" style="${pos(c.date)};font-size:${c.date.size}cqw;color:${esc(c.color)}">${esc(c.date.text || thaiDate())}</div>` : '';
+  return `<div class="certT" ${id ? `id="${id}"` : ''}><img src="${c.img}" alt="เกียรติบัตร" draggable="false"><div class="cname" data-el="name" style="${pos(c)};font-size:${c.size}cqw;color:${esc(c.color)};font-weight:${c.bold ? 700 : 400}">${esc(name)}</div>${dt}${sigs}</div>`;
+}
+function filePNG(file, maxW = 500, maxLen = 150000) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), fr = new FileReader();
+    fr.onload = () => { img.src = fr.result; }; fr.onerror = reject;
+    img.onload = () => { let w = Math.min(img.width, maxW), out = '';
+      for (let k = 0; k < 6; k++) { const c = document.createElement('canvas'); c.width = Math.max(40, w); c.height = Math.max(20, Math.round(img.height / img.width * c.width)); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); out = c.toDataURL('image/png'); if (out.length <= maxLen) break; w = Math.round(w * 0.75); }
+      resolve(out); };
+    img.onerror = reject; fr.readAsDataURL(file);
+  });
+}
 
 // ===== แผนภูมิเรดาร์ (SVG) =====
 function radar(series, max = TRAIT_MAX) {
@@ -433,14 +457,18 @@ function vTeacher() {
     body += `<div class="card"><h3>เพิ่มสิทธิ์ครูสำหรับบัญชีอื่น</h3><p class="muted">ให้ครูท่านอื่นสมัครด้วยชื่อและรหัสผ่าน แล้วกรอกชื่อผู้ใช้หรือรหัสผู้ใช้ (UID) ที่นี่ (หรือเข้าสู่ระบบด้วยรหัสครูได้เลย)</p><div class="row"><input id="newTeacherUid" placeholder="วางชื่อผู้ใช้หรือ UID ของครูที่ต้องการเพิ่ม"><button data-act="grantTeacher">เพิ่มสิทธิ์ครู</button></div></div>`;
   }
   if (ui.tTab === 'cert') {
-    if (ui.cdFor !== L.id) { ui.cd = Object.assign({}, CERT_DEF, JSON.parse(JSON.stringify(L.cert || {}))); ui.cdFor = L.id; }
+    if (ui.cdFor !== L.id) { ui.cd = certCfg(JSON.parse(JSON.stringify(L.cert || {}))); ui.cdFor = L.id; ui.cSel = 'name'; }
     const c = ui.cd, sl = (id, lb, mn, mx, st, v) => `<label>${lb}: <b id="${id}V">${v}</b><input type="range" id="${id}" min="${mn}" max="${mx}" step="${st}" value="${v}" data-cert="${id}"></label>`;
     body = `<label>ชุดสื่อการสอน</label><select data-bind="lessonId">${options(DB.lessons.map((l) => [l.id, l.name]), ui.lessonId)}</select>
       <p class="muted">อัปโหลดรูปเกียรติบัตรของครู (PNG/JPG ควรเว้นที่ว่างสำหรับชื่อ) ระบบจะพิมพ์เฉพาะ "ชื่อผู้เล่น" ทับลงไป ลากชื่อบนตัวอย่างเพื่อย้ายตำแหน่ง หรือใช้แถบเลื่อนปรับตำแหน่ง/ขนาด/สีได้ ผู้เล่นที่ผ่านเกณฑ์จะเห็นเกียรติบัตรนี้ ถ้าไม่ได้อัปโหลด ระบบใช้แบบเริ่มต้น</p>
       <div class="row"><button data-act="certPick">${c.img ? 'เปลี่ยนรูปเทมเพลต' : 'อัปโหลดรูปเทมเพลต'}</button><input type="file" id="certFile" accept="image/*" style="display:none">${c.img ? '<button class="danger" data-act="certClear">ลบเทมเพลต (ใช้แบบเริ่มต้น)</button>' : ''}</div>
-      ${c.img ? `<div class="certbox">${certTemplate(c, 'ชื่อ นามสกุล ตัวอย่าง', 'certPrev')}</div>
-      ${sl('cx', 'ตำแหน่งแนวนอน (%)', 0, 100, 0.5, c.x)}${sl('cy', 'ตำแหน่งแนวตั้ง (%)', 0, 100, 0.5, c.y)}${sl('cs', 'ขนาดตัวอักษร', 1, 15, 0.1, c.size)}
-      <div class="row"><label>สีตัวอักษร<input type="color" id="cc" data-cert="cc" value="${esc(c.color)}"></label><label><input type="checkbox" id="cb" data-cert="cb" ${c.bold ? 'checked' : ''}> ตัวหนา</label></div>
+      ${c.img ? `<div class="certbox">${certTemplate(c, 'ชื่อ นามสกุล ตัวอย่าง', 'certPrev', true)}</div>
+      <label>เลือกสิ่งที่จะปรับ (หรือแตะที่ชิ้นนั้นบนตัวอย่าง)</label><div class="tabs">${CERT_EL.map(([k, l]) => `<button class="${(ui.cSel || 'name') === k ? 'on' : ''}" data-act="certSel" data-k="${k}">${l}</button>`).join('')}</div>
+      ${(() => { const k = ui.cSel || 'name', o = certEl(c, k), isS = k[0] === 's';
+        return sl('cx', 'ตำแหน่งแนวนอน (%)', 0, 100, 0.5, o.x) + sl('cy', 'ตำแหน่งแนวตั้ง (%)', 0, 100, 0.5, o.y) + (isS ? sl('cs', 'ความกว้างลายเซ็น (%)', 4, 40, 0.5, o.w) : sl('cs', 'ขนาดตัวอักษร', 1, 15, 0.1, o.size))
+          + (k === 'name' ? `<div class="row"><label>สีตัวอักษร (ใช้กับชื่อและวันที่)<input type="color" id="cc" data-cert="cc" value="${esc(c.color)}"></label><label><input type="checkbox" id="cb" data-cert="cb" ${c.bold ? 'checked' : ''}> ชื่อตัวหนา</label></div>` : '')
+          + (k === 'date' ? `<label><input type="checkbox" data-cert="cdon" ${c.date.on ? 'checked' : ''}> แสดงวันที่บนเกียรติบัตร</label><label>วันที่ที่จะแสดง (เว้นว่าง = ใช้วันที่ปัจจุบันอัตโนมัติ เช่น ${thaiDate()})<input data-cert="cdt" value="${esc(c.date.text)}" placeholder="เช่น 25 พฤศจิกายน 2569"></label>` : '')
+          + (isS ? `<div class="row"><button data-act="certSigPick">${o.img ? 'เปลี่ยนรูปลายเซ็น' : 'อัปโหลดรูปลายเซ็น'}</button>${o.img ? '<button class="danger" data-act="certSigClear">ลบลายเซ็น</button>' : ''}<input type="file" id="sigFile" accept="image/*" style="display:none"></div><p class="muted">แนะนำไฟล์ PNG พื้นหลังโปร่งใส ลายเซ็นจะอยู่เหนือเส้น "ลงชื่อ" ทุกเกียรติบัตร</p>` : ''); })()}
       <p class="row"><button data-act="certSave">บันทึกเทมเพลต</button></p>` : ''}`;
   }
   if (ui.tTab === 'calib') {
@@ -600,6 +628,9 @@ const H = {
   },
   restorePick: () => $('#restoreFile').click(),
   certPick: () => $('#certFile').click(),
+  certSel: (b) => { ui.cSel = b.dataset.k; render(); },
+  certSigPick: () => $('#sigFile').click(),
+  certSigClear: () => { certEl(ui.cd, ui.cSel).img = ''; render(); },
   certClear: async () => { const L = DB.lessons.find((l) => l.id === ui.lessonId); delete L.cert; ui.cdFor = null; save(); if (cloudOn()) await SicCloud.saveLesson(L).catch(syncErr); toast('ลบเทมเพลตแล้ว'); render(); },
   certSave: async () => {
     const L = DB.lessons.find((l) => l.id === ui.lessonId); L.cert = JSON.parse(JSON.stringify(ui.cd));
@@ -1321,17 +1352,37 @@ document.addEventListener('change', async (e) => {
 if (cloudOn()) startCloud();
 render();
 
-// ตัวปรับเทมเพลตเกียรติบัตร: อัปโหลดรูป แถบเลื่อน และลากชื่อบนตัวอย่าง
+// ตัวปรับเทมเพลตเกียรติบัตร: อัปโหลดรูป แถบเลื่อน และลากชื่อ/วันที่/ลายเซ็นบนตัวอย่าง
 (function () {
-  const upd = () => { const c = ui.cd, n = document.querySelector('#certPrev .cname'); if (!n || !c) return; n.style.left = c.x + '%'; n.style.top = c.y + '%'; n.style.fontSize = c.size + 'cqw'; n.style.color = c.color; n.style.fontWeight = c.bold ? 700 : 400; ['cx', 'cy', 'cs'].forEach((id, i) => { const e = document.getElementById(id + 'V'), k = ['x', 'y', 'size'][i]; if (e) e.textContent = c[k]; const s = document.getElementById(id); if (s) s.value = c[k]; }); };
-  document.addEventListener('input', (e) => { const k = e.target.dataset && e.target.dataset.cert; if (!k || !ui.cd) return; const v = e.target; if (k === 'cx') ui.cd.x = +v.value; else if (k === 'cy') ui.cd.y = +v.value; else if (k === 'cs') ui.cd.size = +v.value; else if (k === 'cc') ui.cd.color = v.value; else if (k === 'cb') ui.cd.bold = v.checked; upd(); });
+  const upd = () => {
+    const c = ui.cd, pv = document.getElementById('certPrev'); if (!pv || !c) return;
+    CERT_EL.forEach(([k]) => { const n = pv.querySelector(`[data-el="${k}"]`), o = certEl(c, k); if (!n) return; n.style.left = o.x + '%'; n.style.top = o.y + '%'; if (k[0] === 's') n.style.width = o.w + '%'; else n.style.fontSize = o.size + 'cqw'; if (k !== 's0' && k !== 's1') n.style.color = c.color; });
+    const nm = pv.querySelector('[data-el="name"]'); if (nm) nm.style.fontWeight = c.bold ? 700 : 400;
+    const dn = pv.querySelector('[data-el="date"]'); if (dn) dn.textContent = c.date.text || thaiDate(); else if (c.date.on) render();
+    if (dn && !c.date.on) render();
+    const o = certEl(c, ui.cSel || 'name'), isS = (ui.cSel || '')[0] === 's';
+    [['cx', 'x'], ['cy', 'y'], ['cs', isS ? 'w' : 'size']].forEach(([id, p]) => { const e = document.getElementById(id + 'V'), s = document.getElementById(id); if (e) e.textContent = o[p]; if (s) s.value = o[p]; });
+  };
+  document.addEventListener('input', (e) => {
+    const k = e.target.dataset && e.target.dataset.cert; if (!k || !ui.cd) return; const v = e.target, sel = ui.cSel || 'name', o = certEl(ui.cd, sel);
+    if (k === 'cx') o.x = +v.value; else if (k === 'cy') o.y = +v.value; else if (k === 'cs') { if (sel[0] === 's') o.w = +v.value; else o.size = +v.value; }
+    else if (k === 'cc') ui.cd.color = v.value; else if (k === 'cb') ui.cd.bold = v.checked; else if (k === 'cdon') { ui.cd.date.on = v.checked; return render(); } else if (k === 'cdt') ui.cd.date.text = v.value;
+    upd();
+  });
   document.addEventListener('change', async (e) => {
-    if (e.target.id !== 'certFile' || !e.target.files[0]) return;
-    try { const img = await fileToDataURL(e.target.files[0], 1600); ui.cd.img = img; toast('โหลดรูปแล้ว กดบันทึกเมื่อปรับตำแหน่งเสร็จ'); render(); } catch (err) { toast('อ่านรูปไม่ได้'); }
+    if (e.target.id === 'certFile' && e.target.files[0]) {
+      try { ui.cd.img = await fileToDataURL(e.target.files[0], 1600); toast('โหลดรูปแล้ว กดบันทึกเมื่อปรับเสร็จ'); render(); } catch (err) { toast('อ่านรูปไม่ได้'); }
+    } else if (e.target.id === 'sigFile' && e.target.files[0]) {
+      try { certEl(ui.cd, ui.cSel).img = await filePNG(e.target.files[0]); toast('โหลดลายเซ็นแล้ว ลากไปวางเหนือเส้น "ลงชื่อ" แล้วกดบันทึก'); render(); } catch (err) { toast('อ่านรูปไม่ได้'); }
+    }
   });
   let drag = false;
-  const mv = (e) => { const b = document.getElementById('certPrev'); if (!drag || !b) return; const r = b.getBoundingClientRect(); ui.cd.x = Math.round(Math.min(100, Math.max(0, (e.clientX - r.left) / r.width * 100)) * 2) / 2; ui.cd.y = Math.round(Math.min(100, Math.max(0, (e.clientY - r.top) / r.height * 100)) * 2) / 2; upd(); };
-  document.addEventListener('pointerdown', (e) => { if (e.target.closest && e.target.closest('#certPrev')) { drag = true; mv(e); e.preventDefault(); } });
+  const mv = (e) => { const b = document.getElementById('certPrev'); if (!drag || !b) return; const r = b.getBoundingClientRect(), o = certEl(ui.cd, ui.cSel || 'name'); o.x = Math.round(Math.min(100, Math.max(0, (e.clientX - r.left) / r.width * 100)) * 2) / 2; o.y = Math.round(Math.min(100, Math.max(0, (e.clientY - r.top) / r.height * 100)) * 2) / 2; upd(); };
+  document.addEventListener('pointerdown', (e) => {
+    if (!(e.target.closest && e.target.closest('#certPrev'))) return;
+    const el = e.target.closest('[data-el]'); if (el && el.dataset.el !== (ui.cSel || 'name')) { ui.cSel = el.dataset.el; render(); }
+    drag = true; mv(e); e.preventDefault();
+  });
   document.addEventListener('pointermove', mv);
   document.addEventListener('pointerup', () => { drag = false; });
 })();
