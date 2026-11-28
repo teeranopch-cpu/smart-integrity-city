@@ -484,7 +484,8 @@ function vTeacher() {
       <label>เกณฑ์ผ่านเกียรติบัตร (เต็ม ${L.posttest.length * EXAM_MAX + TRAITS.length}: Post-Test ${L.posttest.length * EXAM_MAX} + ภารกิจชีวิตจริง ${TRAITS.length})</label><input type="number" id="passScore" min="1" max="${L.posttest.length * EXAM_MAX + TRAITS.length}" value="${L.passScore}"><p><button data-act="savePoints">บันทึกตารางแต้ม</button></p>`;
   }
   if (ui.tTab === 'review') {
-    if (!mine.length) body += '<p class="muted">ยังไม่มีห้อง</p>';
+    body += `<div class="row"><input id="fetchCode" placeholder="ไม่เห็นห้อง? ใส่รหัสห้อง 4–6 ตัวอักษร" maxlength="6" style="text-transform:uppercase"><button class="alt" data-act="teacherFetch">โหลดห้องจากคลาวด์</button></div>`;
+    if (!mine.length) body += '<p class="muted">ยังไม่มีห้อง (ระบบจะโหลดทุกห้องจากคลาวด์อัตโนมัติเมื่อเชื่อมต่อได้)</p>';
     else {
       const rr = DB.rooms[ui.tRoom] || mine[0], cnt = (f) => rr.players.reduce((x, p) => x + Object.values(p.evidence || {}).filter(f).length, 0);
       body += `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((x) => [x.code, x.code + ' · ' + statusLabel(x.status)]), rr.code)}</select>
@@ -1078,6 +1079,11 @@ const H = {
   zoom: (b) => {
     const e = (DB.rooms[b.dataset.code].players.find((x) => x.id === b.dataset.pid) || {}).evidence; const ev = e && e[b.dataset.t]; if (!ev) return;
     const d = document.createElement('div'); d.className = 'zoom'; d.innerHTML = `<img src="${esc(ev.img)}" alt="">`; d.onclick = () => d.remove(); document.body.appendChild(d);
+  },
+  async teacherFetch() {
+    const c = ($('#fetchCode').value || '').trim().toUpperCase(); if (!c) return toast('ใส่รหัสห้องก่อน');
+    if (!cloudOn()) return toast('ยังไม่ได้เชื่อมต่อฐานข้อมูลออนไลน์');
+    try { const r = await SicCloud.fetchRoomByCode(c); toast(r ? 'โหลดห้อง ' + c + ' แล้ว' : 'ไม่พบห้อง ' + c); ui.tRoom = r ? c : ui.tRoom; render(); } catch (e) { syncErr(e); }
   },
   tsOpen: (b) => { ui.tsend = b.dataset.k; render(); },
   tsCancel: () => { ui.tsend = null; render(); },

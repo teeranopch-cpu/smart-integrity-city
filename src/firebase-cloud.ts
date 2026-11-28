@@ -12,6 +12,7 @@ import {
   onSnapshot,
   query,
   where,
+  limit,
   arrayUnion,
   serverTimestamp,
   Unsubscribe,
@@ -300,9 +301,10 @@ function ensureLessonLoaded(lessonId: string) {
 function attachRoomDetailListeners(code: string, roomOwnerUid: string, uid: string) {
   if (roomSubUnsubs.has(code) || !hooks) return;
   const arr: Unsubscribe[] = [];
-  if (roomOwnerUid === uid) {
+  // ครูเห็นข้อมูลทุกห้อง (รวมห้องที่ผู้เล่น/ครูท่านอื่นสร้าง) ด้วยสิทธิ์เดียวกับเจ้าของห้อง
+  if (roomOwnerUid === uid || currentSession?.role === 'teacher') {
     const pPath = `rooms/${code}/players`;
-    const pq = query(collection(db, 'rooms', code, 'players'), where('ownerUid', '==', uid));
+    const pq = query(collection(db, 'rooms', code, 'players'), where('ownerUid', '==', roomOwnerUid));
     arr.push(
       onSnapshot(
         pq,
@@ -345,7 +347,7 @@ function attachRoomDetailListeners(code: string, roomOwnerUid: string, uid: stri
     );
 
     const ePath = `rooms/${code}/evidence`;
-    const eq = query(collection(db, 'rooms', code, 'evidence'), where('ownerUid', '==', uid));
+    const eq = query(collection(db, 'rooms', code, 'evidence'), where('ownerUid', '==', roomOwnerUid));
     arr.push(
       onSnapshot(
         eq,
@@ -498,6 +500,24 @@ function startListeners(session: CloudSession) {
   );
 
   if (session.role === 'teacher') {
+    // ครูเห็นทุกห้องในระบบ (ล่าสุด 300 ห้อง) ไม่ใช่เฉพาะห้องที่ตัวเองสร้าง
+    unsubs.push(
+      onSnapshot(
+        query(collection(db, 'rooms'), limit(300)),
+        (snap) => {
+          if (!hooks) return;
+          snap.forEach((d) => {
+            const data = d.data();
+            if (!data?.code) return;
+            mergeRemoteRoom(data);
+            ensureLessonLoaded(data.lessonId);
+            attachRoomDetailListeners(data.code, data.ownerUid, uid);
+          });
+          hooks.onRemote();
+        },
+        (error) => handleFirestoreError(error, OperationType.LIST, 'rooms')
+      )
+    );
     const lessonQuery = query(collection(db, 'lessons'), where('ownerUid', '==', uid));
     unsubs.push(
       onSnapshot(
