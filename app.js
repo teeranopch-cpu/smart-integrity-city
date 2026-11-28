@@ -105,6 +105,32 @@ function filePNG(file, maxW = 500, maxLen = 150000) {
   });
 }
 
+// ===== ส่งรูปภารกิจชีวิตจริง 5 ด้าน (หลังจบเกม) =====
+const EV_HINTS = { think: 'เช่น รูปการวางแผนงาน จดบันทึก หรือคิดไตร่ตรองก่อนตัดสินใจ', discipline: 'เช่น รูปตารางเวลา การส่งงานตรงเวลา การเข้าแถว', honesty: 'เช่น รูปการคืนของที่เก็บได้ ทอนเงินคืน หรือยอมรับผิดอย่างตรงไปตรงมา', sufficiency: 'เช่น รูปการประหยัด ใช้ของซ้ำ หรือทำบัญชีรายรับรายจ่าย', public: 'เช่น รูปช่วยงานส่วนรวม เก็บขยะ หรือช่วยเหลือผู้อื่น' };
+const EV_STATUS = { pending: 'รอตรวจ', approved: 'ผ่าน', rejected: 'ไม่ผ่าน' };
+async function putEvidence(r, p, t, file, desc, approve) {
+  const L = lessonOf(r), img = await fileToDataURL(file), ai = (await evaluate(desc, L, 'evidence')).verdict;
+  const ev = { img, desc, ai, status: 'pending', at: Date.now() };
+  p.evidence[t] = ev; save();
+  if (cloudOn()) await SicCloud.submitEvidence(r.code, r.ownerUid || me().uid, p.id, t, ev);
+  if (approve) { ev.status = 'approved'; save(); if (cloudOn()) await SicCloud.reviewEvidence(r.code, p.id, t, 'approved'); }
+}
+function crc32(u8) { if (!crc32.t) { crc32.t = []; for (let n = 0, c; n < 256; n++) { c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; crc32.t[n] = c >>> 0; } } let crc = -1; for (let i = 0; i < u8.length; i++) crc = crc32.t[(crc ^ u8[i]) & 255] ^ (crc >>> 8); return (crc ^ -1) >>> 0; }
+function makeZip(files) { // ZIP แบบไม่บีบอัด (รูป JPEG บีบอัดอยู่แล้ว) ชื่อไฟล์ UTF-8
+  const enc = new TextEncoder(), parts = [], cen = []; let off = 0;
+  for (const f of files) {
+    const nm = enc.encode(f.name), crc = crc32(f.data), sz = f.data.length, lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(12, 0x21, true); lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true); lh.setUint16(26, nm.length, true);
+    parts.push(lh.buffer, nm, f.data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(14, 0x21, true); ch.setUint32(16, crc, true); ch.setUint32(20, sz, true); ch.setUint32(24, sz, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+    cen.push(ch.buffer, nm); off += 30 + nm.length + sz;
+  }
+  const csz = cen.reduce((x, y) => x + y.byteLength, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, csz, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...cen, end.buffer], { type: 'application/zip' });
+}
+
 // ===== แผนภูมิเรดาร์ (SVG) =====
 function radar(series, max = TRAIT_MAX) {
   const cx = 150, cy = 140, R = 100, n = TRAITS.length;
@@ -392,9 +418,18 @@ function vPost() {
   const tabs = [['mission', 'ภารกิจชีวิตจริง'], ['post', 'Post-Test'], ['cert', 'เกียรติบัตร']];
   let body = '';
   if (ui.tab === 'mission') {
-    body = `<p class="${over ? 'bad' : 'muted'}">${over ? 'หมดเวลา 3 วัน — ระบบตัดสิทธิ์การส่งภารกิจแล้ว' : 'ส่งภายใน ' + new Date(deadline).toLocaleString('th-TH')}</p>` +
-      TRAITS.map((t) => { const e = p.evidence[t.id]; return `<div class="card"><b>${t.name}</b>${e ? `<div class="row"><a href="${esc(e.img)}" target="_blank" rel="noopener"><img class="ev" src="${esc(e.img)}" alt=""></a><div>${esc(e.desc)}<br><span class="pill">${{ pending: 'รอตรวจ', approved: 'ผ่าน', rejected: 'ไม่ผ่าน' }[e.status]}</span> <span class="muted">AI เบื้องต้น: ${{ pass: 'เข้าข่าย', fail: 'ไม่ชัดเจน', corrupt: 'น่าสงสัย' }[e.ai]}</span></div></div>` : ''}
-        ${over && !e ? '' : e && e.status !== 'rejected' ? '' : `<label>อัปโหลดภาพ</label><input type="file" accept="image/*" data-ev="${t.id}"><label>คำอธิบายสิ่งที่ทำ</label><textarea data-evd="${t.id}"></textarea><p><button data-act="sendEv" data-t="${t.id}">ส่งหลักฐาน</button></p>`}</div>`; }).join('');
+    const sent = TRAITS.filter((t) => p.evidence[t.id]).length, okc = TRAITS.filter((t) => (p.evidence[t.id] || {}).status === 'approved').length;
+    body = `<div class="card"><h3>ส่งรูปภารกิจชีวิตจริง ${TRAITS.length} ด้าน</h3>
+      <p class="${over ? 'bad' : 'muted'}">${over ? 'หมดเวลา 3 วัน — ระบบตัดสิทธิ์การส่งภารกิจแล้ว' : 'ส่งภายใน ' + new Date(deadline).toLocaleString('th-TH')}</p>
+      <div class="prog"><div style="width:${sent / TRAITS.length * 100}%"></div></div>
+      <p>ส่งแล้ว <b>${sent}/${TRAITS.length}</b> · ครูอนุมัติแล้ว <b>${okc}/${TRAITS.length}</b></p>
+      <p class="muted">ถ่ายรูปสิ่งที่ทำจริงในชีวิตประจำวัน ด้านละ 1 รูป พร้อมเขียนอธิบายสั้น ๆ ว่าทำอะไร (บนมือถือกดเลือกรูปแล้วเลือก "ถ่ายรูป" ได้ทันที)</p></div>` +
+      TRAITS.map((t, i) => { const e = p.evidence[t.id], canSend = !over && (!e || e.status === 'rejected');
+        return `<div class="card"><div class="row"><b>${i + 1}. ${t.name}</b> ${e ? `<span class="pill ${e.status === 'approved' ? 'good' : e.status === 'rejected' ? 'bad' : ''}">${EV_STATUS[e.status]}</span>` : '<span class="pill">ยังไม่ส่ง</span>'}</div>
+        <p class="muted">${EV_HINTS[t.id] || ''}</p>
+        ${e ? `<div class="row"><img class="ev" src="${esc(e.img)}" alt="" data-act="zoom" data-code="${r.code}" data-pid="${p.id}" data-t="${t.id}"><div>${esc(e.desc)}${e.status === 'rejected' ? '<br><span class="bad">ครูให้ส่งใหม่ — เลือกรูปและเขียนอธิบายอีกครั้ง</span>' : ''}</div></div>` : ''}
+        ${canSend ? `<label>เลือกหรือถ่ายรูป</label><input type="file" accept="image/*" data-ev="${t.id}"><img class="ev" id="pv_${t.id}" alt="" hidden>
+        <label>คำอธิบายสิ่งที่ทำ</label><textarea data-evd="${t.id}" placeholder="เช่น ทำอะไร ที่ไหน เมื่อไร และได้เรียนรู้อะไร"></textarea><p><button data-act="sendEv" data-t="${t.id}">ส่งรูปด้านนี้</button></p>` : ''}</div>`; }).join('');
   }
   if (ui.tab === 'post') {
     const maxPost = L.posttest.length * EXAM_MAX;
@@ -449,7 +484,21 @@ function vTeacher() {
       <label>เกณฑ์ผ่านเกียรติบัตร (เต็ม ${L.posttest.length * EXAM_MAX + TRAITS.length}: Post-Test ${L.posttest.length * EXAM_MAX} + ภารกิจชีวิตจริง ${TRAITS.length})</label><input type="number" id="passScore" min="1" max="${L.posttest.length * EXAM_MAX + TRAITS.length}" value="${L.passScore}"><p><button data-act="savePoints">บันทึกตารางแต้ม</button></p>`;
   }
   if (ui.tTab === 'review') {
-    body += mine.length ? mine.map((r) => `<div class="card"><b>ห้อง ${r.code}</b>${r.players.map((p) => Object.entries(p.evidence || {}).map(([t, e]) => `<div class="row" style="margin-top:8px"><img class="ev" src="${e.img}" alt=""><div><b>${esc(p.name)}</b> · ${traitName(t)}<br>${esc(e.desc)}<br><span class="pill">${e.status}</span> <button data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="approved">ผ่าน</button> <button class="alt" data-act="rev" data-code="${r.code}" data-pid="${p.id}" data-t="${t}" data-s="rejected">ไม่ผ่าน</button></div></div>`).join('')).join('') || '<p class="muted">ยังไม่มีหลักฐาน</p>'}</div>`).join('') : '<p class="muted">ยังไม่มีห้อง</p>';
+    if (!mine.length) body += '<p class="muted">ยังไม่มีห้อง</p>';
+    else {
+      const rr = DB.rooms[ui.tRoom] || mine[0], cnt = (f) => rr.players.reduce((x, p) => x + Object.values(p.evidence || {}).filter(f).length, 0);
+      body += `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((x) => [x.code, x.code + ' · ' + statusLabel(x.status)]), rr.code)}</select>
+        <p>รูปที่ส่งแล้ว <b>${cnt(() => true)}/${rr.players.length * TRAITS.length}</b> · รอตรวจ <b>${cnt((e) => e.status === 'pending')}</b> · ผ่านแล้ว <b>${cnt((e) => e.status === 'approved')}</b></p>
+        <p class="row"><button data-act="revAll" data-code="${rr.code}">อนุมัติทุกรูปที่รอตรวจในห้องนี้</button><button class="alt" data-act="zipEv" data-code="${rr.code}">ดาวน์โหลดรูปทั้งหมด (ZIP)</button></p>`;
+      body += rr.players.map((p) => { const ev = p.evidence || {}, n = TRAITS.filter((t) => ev[t.id]).length, ok = TRAITS.filter((t) => (ev[t.id] || {}).status === 'approved').length;
+        const open = (ui.tsend || '').split('|');
+        return `<div class="card"><div class="row"><b>${esc(p.name)}</b><span class="muted">ส่งแล้ว ${n}/${TRAITS.length} · ผ่าน ${ok}/${TRAITS.length}</span>${TRAITS.some((t) => (ev[t.id] || {}).status === 'pending') ? `<button class="alt" data-act="revAll" data-code="${rr.code}" data-pid="${p.id}">อนุมัติที่รอตรวจของคนนี้</button>` : ''}</div>
+        <div class="evgrid">${TRAITS.map((t) => { const e = ev[t.id];
+          return `<div class="evslot"><b>${t.name}</b>${e ? `<img class="evt" src="${esc(e.img)}" alt="" data-act="zoom" data-code="${rr.code}" data-pid="${p.id}" data-t="${t.id}"><span class="pill ${e.status === 'approved' ? 'good' : e.status === 'rejected' ? 'bad' : ''}">${EV_STATUS[e.status]}</span><div class="evd">${esc(e.desc)}</div>
+            <div class="row"><button data-act="rev" data-code="${rr.code}" data-pid="${p.id}" data-t="${t.id}" data-s="approved">ผ่าน</button><button class="alt" data-act="rev" data-code="${rr.code}" data-pid="${p.id}" data-t="${t.id}" data-s="rejected">ไม่ผ่าน</button></div>` : '<div class="evt empty">ยังไม่ส่ง</div>'}
+            <button class="alt" data-act="tsOpen" data-k="${rr.code}|${p.id}|${t.id}">${e ? 'เปลี่ยนรูป/ส่งแทน' : 'ส่งรูปแทนผู้เล่น'}</button></div>`; }).join('')}</div>
+        ${open[0] === rr.code && open[1] === p.id ? `<div class="result"><b>ส่งรูปแทน ${esc(p.name)} · ด้าน${traitName(open[2])}</b><label>รูป</label><input type="file" accept="image/*" id="tsFile"><label>คำอธิบาย</label><textarea id="tsDesc"></textarea><label><input type="checkbox" id="tsOk" checked> อนุมัติทันที</label><p class="row"><button data-act="tSend" data-code="${rr.code}" data-pid="${p.id}" data-t="${open[2]}">ส่งแทนผู้เล่น</button><button class="alt" data-act="tsCancel">ยกเลิก</button></p></div>` : ''}</div>`; }).join('');
+    }
   }
   if (ui.tTab === 'export') {
     body += mine.length ? `<label>เลือกห้อง</label><select data-bind="tRoom">${options(mine.map((r) => [r.code, r.code + ' · ' + statusLabel(r.status)]), ui.tRoom || mine[0].code)}</select><p><button data-act="exportCsv">ดาวน์โหลดรายงาน (เปิดด้วย Excel ได้)</button></p>` : '<p class="muted">ยังไม่มีห้อง</p>';
@@ -1017,18 +1066,39 @@ const H = {
   },
   tab: (b) => go('post', { tab: b.dataset.t }),
   async sendEv(b) {
-    const r = room(), L = lessonOf(r), p = r.players.find((x) => x.id === ui.pid), t = b.dataset.t;
+    const r = room(), p = r.players.find((x) => x.id === ui.pid), t = b.dataset.t;
     if (Date.now() > r.endedAt + 3 * 864e5) return toast('หมดเวลา 3 วัน ถูกตัดสิทธิ์แล้ว');
     const f = document.querySelector(`[data-ev=${t}]`).files[0], desc = document.querySelector(`[data-evd=${t}]`).value.trim();
-    if (!f || !desc) return toast('ต้องมีทั้งรูปและคำอธิบาย');
-    const img = await fileToDataURL(f); const ai = (await evaluate(desc, L, 'evidence')).verdict;
-    const evObj = { img, desc, ai, status: 'pending', at: Date.now() };
-    p.evidence[t] = evObj; save();
-    if (cloudOn()) {
-      try { await SicCloud.submitEvidence(r.code, r.ownerUid || me().uid, p.id, t, evObj); }
-      catch (e) { return syncErr(e); }
-    }
-    toast('ส่งหลักฐานแล้ว รอครูตรวจ'); render();
+    if (!f) return toast('กรุณาเลือกหรือถ่ายรูปก่อน');
+    if (!desc) return toast('กรุณาเขียนคำอธิบายสิ่งที่ทำ');
+    b.disabled = true; b.textContent = 'กำลังส่ง…';
+    try { await putEvidence(r, p, t, f, desc, false); } catch (e) { b.disabled = false; b.textContent = 'ส่งรูปด้านนี้'; return syncErr(e); }
+    toast('ส่งรูปแล้ว รอครูตรวจ'); render();
+  },
+  zoom: (b) => {
+    const e = (DB.rooms[b.dataset.code].players.find((x) => x.id === b.dataset.pid) || {}).evidence; const ev = e && e[b.dataset.t]; if (!ev) return;
+    const d = document.createElement('div'); d.className = 'zoom'; d.innerHTML = `<img src="${esc(ev.img)}" alt="">`; d.onclick = () => d.remove(); document.body.appendChild(d);
+  },
+  tsOpen: (b) => { ui.tsend = b.dataset.k; render(); },
+  tsCancel: () => { ui.tsend = null; render(); },
+  async tSend(b) {
+    const r = DB.rooms[b.dataset.code], p = r.players.find((x) => x.id === b.dataset.pid), t = b.dataset.t;
+    const f = $('#tsFile').files[0], desc = $('#tsDesc').value.trim();
+    if (!f) return toast('กรุณาเลือกรูป'); if (!desc) return toast('กรุณาเขียนคำอธิบาย');
+    b.disabled = true; b.textContent = 'กำลังส่ง…';
+    try { await putEvidence(r, p, t, f, desc, $('#tsOk').checked); } catch (e) { b.disabled = false; b.textContent = 'ส่งแทนผู้เล่น'; return syncErr(e); }
+    ui.tsend = null; toast('ส่งรูปแทนผู้เล่นแล้ว'); render();
+  },
+  async revAll(b) {
+    const r = DB.rooms[b.dataset.code], list = b.dataset.pid ? r.players.filter((x) => x.id === b.dataset.pid) : r.players; let n = 0;
+    for (const p of list) for (const [t, e] of Object.entries(p.evidence || {})) if (e.status === 'pending') { e.status = 'approved'; n++; if (cloudOn()) await SicCloud.reviewEvidence(r.code, p.id, t, 'approved').catch(syncErr); }
+    save(); toast(n ? 'อนุมัติแล้ว ' + n + ' รูป' : 'ไม่มีรูปที่รอตรวจ'); render();
+  },
+  zipEv: (b) => {
+    const r = DB.rooms[b.dataset.code], files = [], safe = (s) => String(s).replace(/[\\/:*?"<>|]/g, '_').trim() || '_';
+    for (const p of r.players) for (const t of TRAITS) { const e = (p.evidence || {})[t.id]; if (!e || !e.img.startsWith('data:')) continue; const bin = atob(e.img.split(',')[1]), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); files.push({ name: `${safe(p.name)}/${safe(t.name)}.${/png/.test(e.img.slice(0, 20)) ? 'png' : 'jpg'}`, data: u }); }
+    if (!files.length) return toast('ยังไม่มีรูปให้ดาวน์โหลด');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(makeZip(files)); a.download = `รูปภารกิจ-ห้อง${r.code}.zip`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   },
   print: () => window.print(),
   tTab: (b) => go('teacher', { tTab: b.dataset.t }),
@@ -1386,3 +1456,6 @@ render();
   document.addEventListener('pointermove', mv);
   document.addEventListener('pointerup', () => { drag = false; });
 })();
+
+// แสดงตัวอย่างรูปที่เลือกก่อนส่ง
+document.addEventListener('change', (e) => { const t = e.target.dataset && e.target.dataset.ev; if (!t) return; const f = e.target.files[0], im = document.getElementById('pv_' + t); if (!im) return; if (f) { im.src = URL.createObjectURL(f); im.hidden = false; } else im.hidden = true; });
